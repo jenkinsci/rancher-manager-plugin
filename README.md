@@ -6,8 +6,6 @@ Deploy **Kubernetes manifests** and **Helm charts** from Jenkins through the [Ra
 
 Plugin id: `rancher-manager` · Artifact: `rancher-manager` · JCasC / System symbol: `rancherManager`
 
-HTTP API summary: [`docs/API.md`](docs/API.md).
-
 ## What it does
 
 Configure Rancher once under **Manage Jenkins → System**, then add build steps that talk to the Rancher API on the controller (Jenkins proxy + credentials). Each step can **Inherit** that connection or use a **Manual** URL + token for a specific job.
