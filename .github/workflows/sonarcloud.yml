@@ -1,0 +1,51 @@
+# SonarQube Cloud analysis (Maven + JaCoCo coverage).
+# Requires repository secret: SONAR_TOKEN
+# Project key / organization must match SonarQube Cloud (see tutorial / Administration → Analysis Method).
+# Docs: https://docs.sonarsource.com/sonarqube-cloud/analyzing-source-code/ci-based-analysis/github-actions-for-sonarcloud/
+# Coverage: https://docs.sonarsource.com/sonarqube-cloud/analyzing-source-code/test-coverage/java-test-coverage/
+---
+name: SonarQube Cloud
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  sonar:
+    name: Build and analyze
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: "21"
+          distribution: temurin
+          cache: maven
+
+      - name: Cache SonarQube packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.sonar/cache
+          key: ${{ runner.os }}-sonar
+          restore-keys: ${{ runner.os }}-sonar
+
+      - name: Build, test, coverage, and analyze
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        # Must run tests + -Pcoverage so jacoco.xml exists; -DskipTests yields 0% Coverage on New Code.
+        # organization / projectKey / host.url / jacoco path come from pom.xml <sonar.*> properties.
+        run: >
+          mvn -B -Pcoverage verify
+          org.sonarsource.scanner.maven:sonar-maven-plugin:sonar

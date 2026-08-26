@@ -47,6 +47,10 @@
         <ban-junit4-imports.skip>false</ban-junit4-imports.skip>
         <ban-deprecated-stapler.skip>false</ban-deprecated-stapler.skip>
         <ban-commons-lang-2.skip>false</ban-commons-lang-2.skip>
+        <sonar.organization>mlinops</sonar.organization>
+        <sonar.projectKey>mlinops_rancher-manager-plugin</sonar.projectKey>
+        <sonar.host.url>https://sonarcloud.io</sonar.host.url>
+        <sonar.coverage.jacoco.xmlReportPaths>${project.build.directory}/site/jacoco/jacoco.xml</sonar.coverage.jacoco.xmlReportPaths>
     </properties>
 
     <repositories>
@@ -113,6 +117,7 @@
         </dependency>
     </dependencies>
 
+    <!-- SonarQube Cloud coverage: mvn -Pcoverage verify … sonar (see .github/workflows/sonarcloud.yml) -->
     <profiles>
         <profile>
             <id>coverage</id>
