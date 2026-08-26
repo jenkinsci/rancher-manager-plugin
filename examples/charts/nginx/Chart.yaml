@@ -1,0 +1,9 @@
+# Helm chart — Rancher Helm Deployment (rancherHelm)
+# Package / publish this chart to a Helm repository; point rancherHelm `repo` + `chart: nginx` at it.
+
+apiVersion: v2
+name: nginx
+description: Minimal nginx chart for rancherHelm / CI tests
+type: application
+version: 0.1.0
+appVersion: "1.27-alpine"

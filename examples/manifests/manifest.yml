@@ -1,0 +1,75 @@
+# Kubernetes — Rancher Manifest (rancherManifest)
+# Point manifestFilePath at this file (path relative to the Git repo root).
+# Namespace lives in this YAML (kind: Namespace and metadata.namespace).
+# The Jenkins step does not create namespaces or rewrite documents.
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: jenkins-auto-nginx
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: namespace-quota
+  namespace: jenkins-auto-nginx
+spec:
+  hard:
+    pods: "10"
+    requests.cpu: "2"
+    requests.memory: 4Gi
+    limits.cpu: "4"
+    limits.memory: 8Gi
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: namespace-limits
+  namespace: jenkins-auto-nginx
+spec:
+  limits:
+    - type: Container
+      default:
+        cpu: 500m
+        memory: 512Mi
+      defaultRequest:
+        cpu: 100m
+        memory: 128Mi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-manifest
+  namespace: jenkins-auto-nginx
+  labels:
+    app: nginx-manifest
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nginx-manifest
+  template:
+    metadata:
+      labels:
+        app: nginx-manifest
+    spec:
+      containers:
+        - name: nginx
+          image: registry.example/systems/mirror/nginx:alpine
+          ports:
+            - containerPort: 80
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx-manifest
+  namespace: jenkins-auto-nginx
+  labels:
+    app: nginx-manifest
+spec:
+  selector:
+    app: nginx-manifest
+  ports:
+    - name: http
+      port: 80
+      targetPort: 80

@@ -1,0 +1,16 @@
+<div>
+  <p>Install or upgrade a Helm chart through Rancher Manager catalog API on the controller.
+     Requires a configured System connection or Manual URL + API token on this step.</p>
+  <p>Set Project (Rancher project name or <code>p-xxxxx</code>) and Namespace.
+     Catalog install/upgrade uses that project. After catalog HTTP 201 the step polls the Helm
+     operation from <code>chartActionOutput</code>, then the Helm app
+     until this operation has settled and helm-owned workloads are active, logging Helm operation and app state
+     and object changes from <code>relationships</code>.
+     Ready app with a workload that is not <code>active</code> fails the build.
+     Failed Helm never succeeds, even if workloads still look active; a failed operation includes
+     the Helm job log tail (Recent Operations → Logs). The chart repository URL
+     (<code>http(s)://</code> or <code>oci://</code>) is mapped to an existing ClusterRepo.
+     If catalog cannot find the chart, that index is refreshed and catalog is retried once.
+     Use <strong>Validate only</strong> to dry-run without
+     project lookup, ClusterRepo refresh, namespace create, install, upgrade, uninstall, or wait.</p>
+</div>
