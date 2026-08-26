@@ -1,0 +1,52 @@
+# Maven
+target/
+pom.xml.tag
+pom.xml.releaseBackup
+pom.xml.versionsBackup
+pom.xml.next
+release.properties
+dependency-reduced-pom.xml
+buildNumber.properties
+.mvn/timing.properties
+.mvn/wrapper/maven-wrapper.jar
+
+# IDE
+.idea/
+*.iml
+*.iws
+*.ipr
+.project
+.classpath
+.settings/
+.vscode/
+*.swp
+*~
+.DS_Store
+Thumbs.db
+
+# Local / env configs
+*.local
+*.local.*
+.env
+.env.*
+!.env.example
+local.properties
+
+# Secrets & credentials
+*.pem
+*.key
+*.p12
+*.jks
+*.keystore
+id_rsa
+id_rsa.pub
+id_ed25519
+id_ed25519.pub
+credentials.xml
+secrets/
+
+# Build artifacts
+*.hpi
+*.jpi
+work/
+.jenkins/

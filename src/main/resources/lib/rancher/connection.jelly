@@ -1,0 +1,21 @@
+<?jelly escape-by-default='true'?>
+<!-- Shared Rancher connection for Manifest / Helm. -->
+<j:jelly xmlns:j="jelly:core" xmlns:f="/lib/form" xmlns:c="/lib/credentials">
+  <f:entry title="${%Rancher}" help="${descriptor.getHelpFile('rancherConnectionMode')}"/>
+  <j:set var="help" value="${null}"/>
+  <f:radioBlock inline="true" name="rancherConnectionMode" value="inherit" title="${%Inherit from System}"
+                checked="${instance == null || instance.rancherConnectionMode != 'manual'}">
+    <f:entry>
+      <f:description>${descriptor.rancherConnectionSummary}</f:description>
+    </f:entry>
+  </f:radioBlock>
+  <f:radioBlock inline="true" name="rancherConnectionMode" value="manual" title="${%Manual}"
+                checked="${instance != null &amp;&amp; instance.rancherConnectionMode == 'manual'}">
+    <f:entry title="${%Rancher URL}" field="rancherUrl">
+      <f:textbox clazz="required"/>
+    </f:entry>
+    <f:entry title="${%API token credentials}" field="rancherCredentialsId">
+      <c:select/>
+    </f:entry>
+  </f:radioBlock>
+</j:jelly>

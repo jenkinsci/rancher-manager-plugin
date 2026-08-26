@@ -1,0 +1,43 @@
+<?jelly escape-by-default='true'?>
+<j:jelly xmlns:j="jelly:core" xmlns:f="/lib/form" xmlns:c="/lib/credentials" xmlns:r="/lib/rancher">
+  <div>
+    <r:connection/>
+    <f:entry title="${%Cluster ID}" field="clusterId">
+      <f:textbox clazz="required"/>
+    </f:entry>
+    <f:entry title="${%Manifest source}" help="${descriptor.getHelpFile('manifestSource')}"/>
+    <j:set var="help" value="${null}"/>
+    <f:radioBlock inline="true" name="manifestSource" value="repository" title="${%Repository}"
+                  checked="${instance == null || instance.manifestSource != 'yaml'}">
+      <f:entry title="${%Repository URL}" field="repositoryUrl">
+        <f:textbox/>
+      </f:entry>
+      <f:entry title="${%Manifest file path}" field="manifestFilePath">
+        <f:textbox default="manifest.yaml"/>
+      </f:entry>
+      <f:entry title="${%Git credentials}" field="gitCredentialsId">
+        <c:select/>
+      </f:entry>
+      <f:entry title="${%Repository reference}" field="repositoryReferenceName">
+        <f:textbox default="refs/heads/main"/>
+      </f:entry>
+    </f:radioBlock>
+    <f:radioBlock inline="true" name="manifestSource" value="yaml" title="${%Manual YAML}"
+                  checked="${instance != null &amp;&amp; instance.manifestSource == 'yaml'}">
+      <f:entry title="${%Manifest YAML}" field="manifestYaml">
+        <f:textarea/>
+      </f:entry>
+    </f:radioBlock>
+    <f:advanced title="${%Advanced}">
+      <f:entry title="${%Wait timeout (seconds)}" field="waitTimeoutSeconds">
+        <f:textbox default="300"/>
+      </f:entry>
+      <f:entry title="${%Validate only}" field="validateOnly">
+        <f:checkbox/>
+      </f:entry>
+      <f:entry title="${%Verbose logging}" field="verboseLogging">
+        <f:checkbox/>
+      </f:entry>
+    </f:advanced>
+  </div>
+</j:jelly>

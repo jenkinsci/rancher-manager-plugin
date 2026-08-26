@@ -1,0 +1,16 @@
+replicaCount: 1
+
+imagePullSecrets:
+  - name: gitlab-registry
+
+image:
+  repository: registry.example/docker/nginx
+  tag: 1.29.3
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 80
+
+nameOverride: "test"
+fullnameOverride: ""

@@ -1,0 +1,13 @@
+<div>
+  <p>Chart repository URL that matches an existing Rancher ClusterRepo <code>spec.url</code>.</p>
+  <p>Supported schemes:</p>
+  <ul>
+    <li><code>https://charts.example/helm</code> — classic Helm index repository</li>
+    <li><code>http://charts.example/helm</code> — same (HTTP)</li>
+    <li><code>oci://registry.example/charts</code> — OCI chart registry (Rancher Manager 2.9+)</li>
+  </ul>
+  <p>If catalog cannot find the chart version, the step refreshes that ClusterRepo like the Rancher UI
+     (sets <code>spec.forceUpdate</code> and waits) and retries once.
+     The ClusterRepo must already exist in Rancher; the step does not create it.
+     Registry credentials for private OCI hosts belong on the ClusterRepo in Rancher, not on this step.</p>
+</div>
