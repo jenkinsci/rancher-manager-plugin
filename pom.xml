@@ -71,7 +71,7 @@
             <dependency>
                 <groupId>io.jenkins.tools.bom</groupId>
                 <artifactId>bom-${jenkins.baseline}.x</artifactId>
-                <version>6904.v75208ee5a_206</version>
+                <version>6931.vea_a_b_c6fd017d</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
@@ -126,7 +126,7 @@
                     <plugin>
                         <groupId>org.jacoco</groupId>
                         <artifactId>jacoco-maven-plugin</artifactId>
-                        <version>0.8.13</version>
+                        <version>0.8.15</version>
                         <executions>
                             <execution>
                                 <id>prepare-agent</id>
