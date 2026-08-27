@@ -845,6 +845,26 @@ public class RancherHelmBuilder extends Builder implements SimpleBuildStep {
         }
 
         @POST
+        public FormValidation doCheckValues(
+                @QueryParameter String value,
+                @QueryParameter String valuesSource,
+                @AncestorInPath Item item) {
+            RancherConnections.checkConfigure(item);
+            if (!HelmValuesSource.isYaml(valuesSource)) {
+                return FormValidation.ok();
+            }
+            if (value == null || value.isBlank()) {
+                return FormValidation.error("Values YAML is required for Manual YAML source.");
+            }
+            try {
+                requireLooksLikeYaml(value);
+                return FormValidation.ok();
+            } catch (IllegalArgumentException e) {
+                return FormValidation.error(e.getMessage());
+            }
+        }
+
+        @POST
         public ListBoxModel doFillRancherCredentialsIdItems(
                 @AncestorInPath Item item, @QueryParameter String rancherCredentialsId) {
             return RancherCredentials.fillSecretText(item, rancherCredentialsId);
