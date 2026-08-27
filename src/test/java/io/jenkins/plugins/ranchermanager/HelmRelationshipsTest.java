@@ -70,7 +70,33 @@ public class HelmRelationshipsTest {
     @Test
     public void fingerprint_joinsLines() {
         assertEquals("", HelmRelationships.fingerprint(List.of()));
+        assertEquals("", HelmRelationships.fingerprint(null));
         assertEquals("a\nb", HelmRelationships.fingerprint(List.of("a", "b")));
+    }
+
+    @Test
+    public void gate_statefulSetJobUnnamedAndUnknownType() throws Exception {
+        assertEquals(HelmRelationships.Gate.PASSED, HelmRelationships.gate(null));
+        JsonNode sts = MAPPER.readTree(appWith(
+                "{\"toId\":\"default/db\",\"toType\":\"apps.statefulset\","
+                        + "\"rel\":\"helmresource\",\"state\":\"updating\"}"));
+        assertEquals(HelmRelationships.Gate.NOT_READY, HelmRelationships.gate(sts));
+
+        JsonNode job = MAPPER.readTree(appWith(
+                "{\"toId\":\"default/migrate\",\"toType\":\"apps.daemonset\","
+                        + "\"rel\":\"helmresource\",\"state\":\"active\"}"));
+        assertEquals(HelmRelationships.Gate.PASSED, HelmRelationships.gate(job));
+
+        JsonNode unnamed = MAPPER.readTree(appWith(
+                "{\"toType\":\"configmap\",\"rel\":\"helmresource\",\"state\":\"\"}"));
+        List<String> board = HelmRelationships.boardLines(unnamed);
+        assertEquals(1, board.size());
+        assertTrue(board.get(0).contains("unnamed"));
+        assertTrue(board.get(0).contains("unknown"));
+
+        JsonNode noDot = MAPPER.readTree(appWith(
+                "{\"toId\":\"only-name\",\"toType\":\"Service\",\"rel\":\"helmresource\",\"state\":\"active\"}"));
+        assertTrue(HelmRelationships.boardLines(noDot).get(0).contains("Service only-name"));
     }
 
     private static String appWith(String relationship) {

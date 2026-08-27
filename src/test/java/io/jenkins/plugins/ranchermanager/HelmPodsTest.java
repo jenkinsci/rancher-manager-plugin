@@ -73,5 +73,49 @@ public class HelmPodsTest {
                 "{\"metadata\":{\"annotations\":{\"meta.helm.sh/release-name\":\"demo-nginx\"}}}");
         assertTrue(HelmPods.belongsToRelease(wl, "demo-nginx"));
         assertFalse(HelmPods.belongsToRelease(wl, "other"));
+        assertFalse(HelmPods.belongsToRelease(null, "demo-nginx"));
+        assertFalse(HelmPods.belongsToRelease(wl, " "));
+        assertTrue(HelmPods.problems(MAPPER.readTree("{}"), " ").isEmpty());
+        assertTrue(HelmPods.problems(null, "rel").isEmpty());
+    }
+
+    @Test
+    public void problemLine_initWaitingFailedPhaseAndEmpty() throws Exception {
+        JsonNode init = MAPPER.readTree(
+                "{\"metadata\":{\"name\":\"p\"},\"status\":{\"initContainerStatuses\":[{"
+                        + "\"name\":\"init\",\"state\":{\"waiting\":{\"reason\":\"CrashLoopBackOff\"}}}]}}");
+        assertTrue(HelmPods.problemLine(init).contains("CrashLoopBackOff"));
+
+        JsonNode waitingNoReason = MAPPER.readTree(
+                "{\"metadata\":{\"name\":\"p\"},\"status\":{\"containerStatuses\":[{"
+                        + "\"state\":{\"waiting\":{}}}]}}");
+        assertEquals("", HelmPods.problemLine(waitingNoReason));
+
+        JsonNode failed = MAPPER.readTree(
+                "{\"metadata\":{\"name\":\"p\"},\"status\":{\"phase\":\"Failed\"}}");
+        assertEquals("pod p: Failed", HelmPods.problemLine(failed));
+
+        JsonNode pending = MAPPER.readTree(
+                "{\"metadata\":{},\"status\":{\"phase\":\"Pending\"}}");
+        assertEquals("pod pod: Pending", HelmPods.problemLine(pending));
+
+        JsonNode running = MAPPER.readTree(
+                "{\"metadata\":{\"name\":\"ok\"},\"status\":{\"phase\":\"Running\"}}");
+        assertEquals("", HelmPods.problemLine(running));
+        assertEquals("", HelmPods.problemLine(null));
+        assertEquals("", HelmPods.fingerprint(null));
+        assertEquals("", HelmPods.joined(null));
+    }
+
+    @Test
+    public void falseCondition_blankFieldsSkipped() throws Exception {
+        JsonNode blank = MAPPER.readTree(
+                "{\"metadata\":{\"name\":\"p\"},\"status\":{\"conditions\":[{"
+                        + "\"status\":\"False\"}]}}");
+        assertEquals("", HelmPods.problemLine(blank));
+        JsonNode typeOnly = MAPPER.readTree(
+                "{\"metadata\":{\"name\":\"p\"},\"status\":{\"conditions\":[{"
+                        + "\"type\":\"Ready\",\"status\":\"False\"}]}}");
+        assertTrue(HelmPods.problemLine(typeOnly).contains("Ready"));
     }
 }

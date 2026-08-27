@@ -473,15 +473,13 @@ public class RancherHelmBuilder extends Builder implements SimpleBuildStep {
             log.info("Waiting for Helm release=" + inputs.release
                     + " timeoutSeconds=" + inputs.waitTimeoutSeconds);
             client.waitUntilHelmReleaseSettled(
-                    connection.baseUrl,
-                    apiToken,
-                    inputs.clusterId,
+                    new RancherClient.ClusterAccess(connection.baseUrl, apiToken, inputs.clusterId),
                     inputs.namespace,
                     inputs.release,
                     applied.actionOutput(),
                     existing,
-                    inputs.waitTimeoutSeconds * 1000L,
-                    HelmAppStates.pollIntervalMs());
+                    new RancherClient.PollBudget(
+                            inputs.waitTimeoutSeconds * 1000L, HelmAppStates.pollIntervalMs()));
 
             var fields = RancherBuildLogger.summaryFields();
             fields.put("outcome", applied.outcome());

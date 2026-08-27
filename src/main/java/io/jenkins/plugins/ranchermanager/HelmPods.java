@@ -1,8 +1,6 @@
 package io.jenkins.plugins.ranchermanager;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -22,13 +20,12 @@ final class HelmPods {
         if (rel.isEmpty()) {
             return out;
         }
-        for (JsonNode pod : collectionItems(list)) {
-            if (!belongsToRelease(pod, rel)) {
-                continue;
-            }
-            String line = problemLine(pod);
-            if (!line.isBlank()) {
-                out.add(line);
+        for (JsonNode pod : K8sJson.collectionItems(list)) {
+            if (belongsToRelease(pod, rel)) {
+                String line = problemLine(pod);
+                if (!line.isBlank()) {
+                    out.add(line);
+                }
             }
         }
         return out;
@@ -48,86 +45,98 @@ final class HelmPods {
         return String.join("; ", problems);
     }
 
-    private static String problemLine(JsonNode pod) {
+    static String problemLine(JsonNode pod) {
+        if (K8sJson.missing(pod)) {
+            return "";
+        }
         String name = RancherClient.firstNonBlank(
-                RancherClient.text(pod.path("metadata"), "name"), "pod");
-        String waiting = firstWaiting(pod, name);
+                RancherClient.text(K8sJson.metadata(pod), K8sJson.NAME), "pod");
+        JsonNode status = K8sJson.status(pod);
+        String waiting = firstWaiting(status.path("initContainerStatuses"), name);
         if (!waiting.isBlank()) {
             return waiting;
         }
-        String condition = firstFalseCondition(pod, name);
+        waiting = firstWaiting(status.path("containerStatuses"), name);
+        if (!waiting.isBlank()) {
+            return waiting;
+        }
+        String condition = firstFalseCondition(status.path("conditions"), name);
         if (!condition.isBlank()) {
             return condition;
         }
-        String phase = RancherClient.text(pod.path("status"), "phase");
+        String phase = RancherClient.text(status, "phase");
         if ("Pending".equalsIgnoreCase(phase) || "Failed".equalsIgnoreCase(phase)) {
             return "pod " + name + ": " + phase;
         }
         return "";
     }
 
-    private static String firstWaiting(JsonNode pod, String podName) {
-        JsonNode status = pod.path("status");
-        String line = firstWaitingIn(status.path("initContainerStatuses"), podName);
-        if (!line.isBlank()) {
-            return line;
-        }
-        return firstWaitingIn(status.path("containerStatuses"), podName);
-    }
-
-    private static String firstWaitingIn(JsonNode statuses, String podName) {
+    private static String firstWaiting(JsonNode statuses, String podName) {
         if (!statuses.isArray()) {
             return "";
         }
         for (JsonNode cs : statuses) {
-            JsonNode waiting = cs.path("state").path("waiting");
-            if (waiting.isMissingNode() || waiting.isNull() || !waiting.isObject()) {
-                continue;
+            String line = waitingLine(cs, podName);
+            if (!line.isBlank()) {
+                return line;
             }
-            String reason = clean(RancherClient.text(waiting, "reason"));
-            String message = clean(RancherClient.text(waiting, "message"));
-            if (reason.isBlank() && message.isBlank()) {
-                continue;
-            }
-            String container = RancherClient.firstNonBlank(RancherClient.text(cs, "name"), "container");
-            StringBuilder sb = new StringBuilder("pod ").append(podName).append(" container ").append(container);
-            if (!reason.isBlank()) {
-                sb.append(": ").append(reason);
-            }
-            if (!message.isBlank()) {
-                sb.append(": ").append(message);
-            }
-            return sb.toString();
         }
         return "";
     }
 
-    private static String firstFalseCondition(JsonNode pod, String podName) {
-        JsonNode conditions = pod.path("status").path("conditions");
+    private static String waitingLine(JsonNode cs, String podName) {
+        JsonNode waiting = cs.path(K8sJson.STATE).path("waiting");
+        if (waiting.isMissingNode() || waiting.isNull() || !waiting.isObject()) {
+            return "";
+        }
+        String reason = clean(RancherClient.text(waiting, "reason"));
+        String message = clean(RancherClient.text(waiting, K8sJson.MESSAGE));
+        if (reason.isBlank() && message.isBlank()) {
+            return "";
+        }
+        String container = RancherClient.firstNonBlank(RancherClient.text(cs, K8sJson.NAME), "container");
+        StringBuilder sb = new StringBuilder("pod ").append(podName).append(" container ").append(container);
+        if (!reason.isBlank()) {
+            sb.append(": ").append(reason);
+        }
+        if (!message.isBlank()) {
+            sb.append(": ").append(message);
+        }
+        return sb.toString();
+    }
+
+    private static String firstFalseCondition(JsonNode conditions, String podName) {
         if (!conditions.isArray()) {
             return "";
         }
         for (JsonNode condition : conditions) {
-            if (!"False".equalsIgnoreCase(RancherClient.text(condition, "status"))) {
-                continue;
+            String line = falseConditionLine(condition, podName);
+            if (!line.isBlank()) {
+                return line;
             }
-            String type = clean(RancherClient.text(condition, "type"));
-            String reason = clean(RancherClient.text(condition, "reason"));
-            String message = clean(RancherClient.text(condition, "message"));
-            if (type.isBlank() && reason.isBlank() && message.isBlank()) {
-                continue;
-            }
-            StringBuilder sb = new StringBuilder("pod ").append(podName);
-            String detail = RancherClient.firstNonBlank(reason, type);
-            if (!detail.isBlank()) {
-                sb.append(": ").append(detail);
-            }
-            if (!message.isBlank()) {
-                sb.append(": ").append(message);
-            }
-            return sb.toString();
         }
         return "";
+    }
+
+    private static String falseConditionLine(JsonNode condition, String podName) {
+        if (!"False".equalsIgnoreCase(RancherClient.text(condition, K8sJson.STATUS))) {
+            return "";
+        }
+        String type = clean(RancherClient.text(condition, "type"));
+        String reason = clean(RancherClient.text(condition, "reason"));
+        String message = clean(RancherClient.text(condition, K8sJson.MESSAGE));
+        if (type.isBlank() && reason.isBlank() && message.isBlank()) {
+            return "";
+        }
+        StringBuilder sb = new StringBuilder("pod ").append(podName);
+        String detail = RancherClient.firstNonBlank(reason, type);
+        if (!detail.isBlank()) {
+            sb.append(": ").append(detail);
+        }
+        if (!message.isBlank()) {
+            sb.append(": ").append(message);
+        }
+        return sb.toString();
     }
 
     private static String clean(String raw) {
@@ -142,26 +151,11 @@ final class HelmPods {
         if (workload == null || releaseName == null || releaseName.isBlank()) {
             return false;
         }
-        JsonNode meta = workload.path("metadata");
+        JsonNode meta = K8sJson.metadata(workload);
         String instance = RancherClient.text(meta.path("labels"), INSTANCE_LABEL);
         if (releaseName.equals(instance)) {
             return true;
         }
-        return releaseName.equals(RancherClient.text(meta.path("annotations"), RELEASE_ANNOTATION));
-    }
-
-    static ArrayNode collectionItems(JsonNode list) {
-        if (list == null || list.isNull() || list.isMissingNode()) {
-            return JsonNodeFactory.instance.arrayNode();
-        }
-        JsonNode data = list.path("data");
-        if (data.isArray()) {
-            return (ArrayNode) data;
-        }
-        JsonNode items = list.path("items");
-        if (items.isArray()) {
-            return (ArrayNode) items;
-        }
-        return JsonNodeFactory.instance.arrayNode();
+        return releaseName.equals(RancherClient.text(meta.path(K8sJson.ANNOTATIONS), RELEASE_ANNOTATION));
     }
 }

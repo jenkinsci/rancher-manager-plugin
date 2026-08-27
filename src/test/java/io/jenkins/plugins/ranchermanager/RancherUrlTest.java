@@ -47,4 +47,18 @@ public class RancherUrlTest {
                 () -> RancherUrl.normalizeBaseUrlSyntaxOnly("https://"));
         assertTrue(missingBare.getMessage().toLowerCase().contains("host"));
     }
+
+    @Test
+    void stripTrailingSlashes_andNormalizeWithLoopback() {
+        assertEquals(null, RancherUrl.stripTrailingSlashes(null));
+        assertEquals("", RancherUrl.stripTrailingSlashes(""));
+        assertEquals("https://rancher.example", RancherUrl.stripTrailingSlashes("https://rancher.example///"));
+        assertEquals("https://", RancherUrl.stripTrailingSlashes("https://"));
+        System.setProperty(ConnectionTester.ALLOW_LOOPBACK_FOR_TESTS_PROP, "true");
+        try {
+            assertEquals("http://127.0.0.1:8080", RancherUrl.normalizeBaseUrl("http://127.0.0.1:8080/dashboard/"));
+        } finally {
+            System.clearProperty(ConnectionTester.ALLOW_LOOPBACK_FOR_TESTS_PROP);
+        }
+    }
 }

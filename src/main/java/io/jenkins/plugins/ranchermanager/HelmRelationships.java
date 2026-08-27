@@ -21,16 +21,14 @@ final class HelmRelationships {
             "apps.daemonset",
             "batch.job");
     private static final String HELM_RELEASE_SECRET = "sh.helm.release.v1.";
+    private static final String TO_TYPE = "toType";
 
     private HelmRelationships() {
     }
 
     static Gate gate(JsonNode app) {
         for (JsonNode rel : helmResources(app)) {
-            if (!isWorkload(rel)) {
-                continue;
-            }
-            if (!isActive(rel)) {
+            if (isWorkload(rel) && !isActive(rel)) {
                 return Gate.NOT_READY;
             }
         }
@@ -59,17 +57,16 @@ final class HelmRelationships {
     static String inactiveWorkloads(JsonNode app) {
         List<String> parts = new ArrayList<>();
         for (JsonNode rel : helmResources(app)) {
-            if (!isWorkload(rel) || isActive(rel)) {
-                continue;
+            if (isWorkload(rel) && !isActive(rel)) {
+                parts.add(formatLine("", rel));
             }
-            parts.add(formatLine("", rel));
         }
         return String.join("; ", parts);
     }
 
     private static List<JsonNode> helmResources(JsonNode app) {
         List<JsonNode> out = new ArrayList<>();
-        if (app == null || app.isNull() || app.isMissingNode()) {
+        if (K8sJson.missing(app)) {
             return out;
         }
         JsonNode rels = app.path("relationships");
@@ -77,38 +74,42 @@ final class HelmRelationships {
             return out;
         }
         for (JsonNode rel : rels) {
-            if (!"helmresource".equalsIgnoreCase(RancherClient.text(rel, "rel"))) {
-                continue;
+            if (isTrackedHelmResource(rel)) {
+                out.add(rel);
             }
-            if (isHelmReleaseSecret(rel)) {
-                continue;
-            }
-            out.add(rel);
         }
         return out;
     }
 
+    private static boolean isTrackedHelmResource(JsonNode rel) {
+        return "helmresource".equalsIgnoreCase(RancherClient.text(rel, "rel")) && !isHelmReleaseSecret(rel);
+    }
+
     private static boolean isHelmReleaseSecret(JsonNode rel) {
-        String toType = RancherClient.text(rel, "toType").toLowerCase(Locale.ROOT);
         String toId = RancherClient.text(rel, "toId");
-        return "secret".equals(toType) && toId.contains(HELM_RELEASE_SECRET);
+        return "secret".equals(toType(rel)) && toId.contains(HELM_RELEASE_SECRET);
     }
 
     private static boolean isWorkload(JsonNode rel) {
-        return WORKLOAD_TYPES.contains(RancherClient.text(rel, "toType").toLowerCase(Locale.ROOT));
+        return WORKLOAD_TYPES.contains(toType(rel));
+    }
+
+    private static String toType(JsonNode rel) {
+        return RancherClient.text(rel, TO_TYPE).toLowerCase(Locale.ROOT);
     }
 
     private static boolean isActive(JsonNode rel) {
-        return "active".equalsIgnoreCase(RancherClient.text(rel, "state"));
+        return "active".equalsIgnoreCase(RancherClient.text(rel, K8sJson.STATE));
     }
 
     private static String formatLine(String prefix, JsonNode rel) {
-        String type = shortType(RancherClient.text(rel, "toType"));
+        String type = shortType(RancherClient.text(rel, TO_TYPE));
         String name = resourceName(RancherClient.text(rel, "toId"));
-        String state = RancherClient.firstNonBlank(RancherClient.text(rel, "state"), "unknown");
+        String state = RancherClient.firstNonBlank(RancherClient.text(rel, K8sJson.STATE), "unknown");
         StringBuilder sb = new StringBuilder(prefix).append(type).append(" ").append(name).append(": ").append(state);
         String message = RancherClient.truncateDetail(
-                RancherClient.sanitizeErrorDetail(RancherClient.text(rel, "message").replaceAll("\\s+", " ").trim()));
+                RancherClient.sanitizeErrorDetail(
+                        RancherClient.text(rel, K8sJson.MESSAGE).replaceAll("\\s+", " ").trim()));
         if (!message.isBlank()) {
             sb.append(" (").append(message).append(")");
         }

@@ -38,4 +38,34 @@ class ManifestWorkloadsTest {
                 ManifestWorkloadStates.Progress.WAITING,
                 ManifestWorkloadStates.classify(ManifestWorkloads.Kind.DEPLOYMENT, null));
     }
+
+    @Test
+    void parse_kindsAndSkips() {
+        List<ManifestWorkloads.Workload> workloads = ManifestWorkloads.parse(
+                "apiVersion: apps/v1\nkind: StatefulSet\nmetadata:\n  name: db\n  namespace: data\n---\n"
+                        + "kind: DaemonSet\nmetadata:\n  name: agent\n---\n"
+                        + "kind: Job\nmetadata:\n  name: migrate\n---\n"
+                        + "kind: Deployment\nmetadata:\n  name: \"\"\n---\n"
+                        + "- not-a-map\n---\n"
+                        + "kind: Service\nmetadata:\n  name: svc\n---\n"
+                        + "kind: Deployment\nmetadata: not-a-map\n");
+        assertEquals(3, workloads.size());
+        assertEquals("apps.statefulsets/data/db", workloads.get(0).stevePath());
+        assertEquals("DaemonSet default/agent", workloads.get(1).display());
+        assertEquals(ManifestWorkloads.Kind.JOB, workloads.get(2).kind());
+        assertTrue(ManifestWorkloads.parse(null).isEmpty());
+        assertTrue(ManifestWorkloads.parse("  ").isEmpty());
+        assertTrue(ManifestWorkloads.namespaces(null).isEmpty());
+        assertTrue(ManifestWorkloads.namespaces(List.of()).isEmpty());
+        assertEquals(ManifestWorkloads.Kind.DEPLOYMENT, ManifestWorkloads.Kind.of("deployment"));
+        assertEquals(null, ManifestWorkloads.Kind.of(" "));
+        assertEquals(null, ManifestWorkloads.Kind.of("Secret"));
+    }
+
+    @Test
+    void parse_invalidYamlThrows() {
+        IllegalArgumentException ex = org.junit.jupiter.api.Assertions.assertThrows(
+                IllegalArgumentException.class, () -> ManifestWorkloads.parse("foo: [unterminated"));
+        assertTrue(ex.getMessage().contains("Cannot parse manifest YAML"));
+    }
 }

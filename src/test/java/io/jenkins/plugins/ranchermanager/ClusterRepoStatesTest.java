@@ -43,4 +43,33 @@ public class ClusterRepoStatesTest {
         assertEquals(ClusterRepoStates.Progress.FAILED, ClusterRepoStates.classify(repo, null));
         assertEquals("bad index", ClusterRepoStates.failureDetail(repo));
     }
+
+    @Test
+    void classify_missingReadyByStateAndFingerprintChange() throws Exception {
+        assertEquals(ClusterRepoStates.Progress.WAITING, ClusterRepoStates.classify(null, null));
+        JsonNode active = MAPPER.readTree("{\"status\":{\"summary\":{\"state\":\"active\"}}}");
+        assertEquals(ClusterRepoStates.Progress.READY, ClusterRepoStates.classify(active, null));
+        JsonNode ready = MAPPER.readTree("{\"status\":{\"state\":\"ready\"}}");
+        assertEquals(ClusterRepoStates.Progress.READY, ClusterRepoStates.classify(ready, null));
+
+        JsonNode before = MAPPER.readTree(
+                "{\"metadata\":{\"resourceVersion\":\"\"},\"status\":{\"downloadTime\":\"t1\"}}");
+        JsonNode after = MAPPER.readTree(
+                "{\"metadata\":{\"resourceVersion\":\"\"},\"status\":{\"downloadTime\":\"t2\"}}");
+        assertEquals(ClusterRepoStates.Progress.READY, ClusterRepoStates.classify(after, before));
+
+        JsonNode waiting = MAPPER.readTree("{\"status\":{\"summary\":{\"state\":\"unknown\"}}}");
+        assertEquals(ClusterRepoStates.Progress.WAITING, ClusterRepoStates.classify(waiting, null));
+
+        JsonNode generationLag = MAPPER.readTree(
+                "{\"metadata\":{\"generation\":2},\"status\":{\"observedGeneration\":1}}");
+        assertEquals(ClusterRepoStates.Progress.WAITING, ClusterRepoStates.classify(generationLag, null));
+
+        JsonNode unsuccessful = MAPPER.readTree("{\"status\":{\"summary\":{\"state\":\"unsuccessful\"}}}");
+        assertEquals(ClusterRepoStates.Progress.FAILED, ClusterRepoStates.classify(unsuccessful, null));
+
+        JsonNode downloadedFalse = MAPPER.readTree(
+                "{\"status\":{\"conditions\":[{\"type\":\"Downloaded\",\"status\":\"False\"}]}}");
+        assertEquals(ClusterRepoStates.Progress.WAITING, ClusterRepoStates.classify(downloadedFalse, null));
+    }
 }

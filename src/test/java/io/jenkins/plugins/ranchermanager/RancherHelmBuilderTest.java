@@ -1011,6 +1011,49 @@ public class RancherHelmBuilderTest {
         assertEquals(1, podLists.get());
     }
 
+    @Test
+    public void yamlValuesMissing_abortsBeforeRancher(JenkinsRule jenkins) throws Exception {
+        configureRancher(jenkins);
+        FreeStyleProject job = jenkins.createFreeStyleProject();
+        RancherHelmBuilder step = minimalHelmStep();
+        step.setValuesSource(RancherHelmBuilder.VALUES_YAML);
+        job.getBuildersList().add(step);
+
+        FreeStyleBuild build = jenkins.buildAndAssertStatus(Result.FAILURE, job);
+        jenkins.assertLogContains("Values YAML is required", build);
+        assertFalse(upgradeCalled.get());
+    }
+
+    @Test
+    public void repositoryValuesMissingUrl_aborts(JenkinsRule jenkins) throws Exception {
+        configureRancher(jenkins);
+        FreeStyleProject job = jenkins.createFreeStyleProject();
+        RancherHelmBuilder step = minimalHelmStep();
+        step.setValuesSource(RancherHelmBuilder.VALUES_REPOSITORY);
+        job.getBuildersList().add(step);
+
+        FreeStyleBuild build = jenkins.buildAndAssertStatus(Result.FAILURE, job);
+        jenkins.assertLogContains("Values repository URL is required", build);
+        assertFalse(upgradeCalled.get());
+    }
+
+    @Test
+    public void validateOnly_repositorySource_skipsClone(JenkinsRule jenkins) throws Exception {
+        configureRancher(jenkins);
+        FreeStyleProject job = jenkins.createFreeStyleProject();
+        RancherHelmBuilder step = minimalHelmStep();
+        step.setValuesSource(RancherHelmBuilder.VALUES_REPOSITORY);
+        step.setValuesRepositoryUrl("https://gitlab.example/group/values.git");
+        step.setValidateOnly(true);
+        step.setVerboseLogging(true);
+        step.setForceReinstall(true);
+        job.getBuildersList().add(step);
+
+        FreeStyleBuild build = jenkins.buildAndAssertSuccess(job);
+        jenkins.assertLogContains("Summary outcome=validated", build);
+        assertFalse(upgradeCalled.get());
+    }
+
     private void assertNoClusterRepoRefresh() {
         assertFalse(refreshCalled.get());
         assertEquals(0, clusterRepoGets.get());

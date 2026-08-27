@@ -39,5 +39,14 @@ public class RancherProjectsTest {
     @Test
     public void resolve_trims() {
         assertEquals("mnp", RancherProjects.resolve("  mnp  ", null));
+        hudson.EnvVars env = new hudson.EnvVars();
+        env.put("PROJECT", "p-abc12");
+        assertEquals("p-abc12", RancherProjects.resolve("${PROJECT}", env));
+        org.junit.jupiter.api.Assertions.assertThrows(
+                IllegalArgumentException.class, () -> RancherProjects.resolve("local:p-abc12", null));
+        org.junit.jupiter.api.Assertions.assertThrows(
+                IllegalArgumentException.class, () -> RancherProjects.resolve("  ", null));
+        assertFalse(RancherProjects.looksLikeProjectId(null));
+        assertFalse(RancherProjects.looksLikeProjectId(" "));
     }
 }
