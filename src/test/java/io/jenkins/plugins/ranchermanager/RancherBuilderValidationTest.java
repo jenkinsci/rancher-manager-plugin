@@ -106,6 +106,18 @@ class RancherBuilderValidationTest {
     }
 
     @Test
+    void helmDescriptorValuesYamlChecks(JenkinsRule jenkins) {
+        RancherHelmBuilder.DescriptorImpl d =
+                jenkins.jenkins.getDescriptorByType(RancherHelmBuilder.DescriptorImpl.class);
+        assertEquals(FormValidation.Kind.OK, d.doCheckValues("", HelmValuesSource.NONE, null).kind);
+        assertEquals(FormValidation.Kind.OK, d.doCheckValues("", HelmValuesSource.REPOSITORY, null).kind);
+        assertEquals(FormValidation.Kind.ERROR, d.doCheckValues("", HelmValuesSource.YAML, null).kind);
+        assertEquals(
+                FormValidation.Kind.OK, d.doCheckValues("replicaCount: 1\n", HelmValuesSource.YAML, null).kind);
+        assertEquals(FormValidation.Kind.ERROR, d.doCheckValues("plain", HelmValuesSource.YAML, null).kind);
+    }
+
+    @Test
     void helmDescriptorFillCredentials(JenkinsRule jenkins) {
         RancherHelmBuilder.DescriptorImpl d =
                 jenkins.jenkins.getDescriptorByType(RancherHelmBuilder.DescriptorImpl.class);
