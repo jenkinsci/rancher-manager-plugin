@@ -106,6 +106,6 @@ final class HelmAppStates {
 
     private static String fingerprint(JsonNode app) {
         return SteveCatalog.fingerprint(
-                app, String.valueOf(K8sJson.status(app).path("observedGeneration").asLong(0L)));
+                app, String.valueOf(K8sJson.statusNode(app).path("observedGeneration").asLong(0L)));
     }
 }

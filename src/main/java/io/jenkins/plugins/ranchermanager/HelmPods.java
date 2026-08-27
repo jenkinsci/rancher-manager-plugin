@@ -50,8 +50,8 @@ final class HelmPods {
             return "";
         }
         String name = RancherClient.firstNonBlank(
-                RancherClient.text(K8sJson.metadata(pod), K8sJson.NAME), "pod");
-        JsonNode status = K8sJson.status(pod);
+                RancherClient.text(K8sJson.metadataNode(pod), K8sJson.NAME), "pod");
+        JsonNode status = K8sJson.statusNode(pod);
         String waiting = firstWaiting(status.path("initContainerStatuses"), name);
         if (!waiting.isBlank()) {
             return waiting;
@@ -151,7 +151,7 @@ final class HelmPods {
         if (workload == null || releaseName == null || releaseName.isBlank()) {
             return false;
         }
-        JsonNode meta = K8sJson.metadata(workload);
+        JsonNode meta = K8sJson.metadataNode(workload);
         String instance = RancherClient.text(meta.path("labels"), INSTANCE_LABEL);
         if (releaseName.equals(instance)) {
             return true;

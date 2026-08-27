@@ -532,7 +532,7 @@ final class RancherClient implements AutoCloseable {
         if (namespaceJson == null) {
             return "";
         }
-        JsonNode annotations = K8sJson.metadata(namespaceJson).path(K8sJson.ANNOTATIONS);
+        JsonNode annotations = K8sJson.metadataNode(namespaceJson).path(K8sJson.ANNOTATIONS);
         if (annotations.isMissingNode() || annotations.isNull() || !annotations.isObject()) {
             annotations = namespaceJson.path(K8sJson.ANNOTATIONS);
         }
@@ -547,15 +547,15 @@ final class RancherClient implements AutoCloseable {
         if (!itemCluster.isBlank() && !itemCluster.equals(clusterId)) {
             return null;
         }
-        String id = firstNonBlank(text(item, "id"), text(K8sJson.metadata(item), K8sJson.NAME));
+        String id = firstNonBlank(text(item, "id"), text(K8sJson.metadataNode(item), K8sJson.NAME));
         String shortId = shortProjectId(id);
         if (shortId.isBlank() || !RancherProjects.looksLikeProjectId(shortId)) {
-            shortId = shortProjectId(text(K8sJson.metadata(item), K8sJson.NAME));
+            shortId = shortProjectId(text(K8sJson.metadataNode(item), K8sJson.NAME));
         }
         if (shortId.isBlank() || !RancherProjects.looksLikeProjectId(shortId)) {
             return null;
         }
-        String name = firstNonBlank(text(item, K8sJson.NAME), text(K8sJson.metadata(item), K8sJson.NAME), shortId);
+        String name = firstNonBlank(text(item, K8sJson.NAME), text(K8sJson.metadataNode(item), K8sJson.NAME), shortId);
         return new ResolvedProject(clusterId, shortId.toLowerCase(Locale.ROOT), name);
     }
 
@@ -620,7 +620,7 @@ final class RancherClient implements AutoCloseable {
         String hostPath = ChartRepositoryUrls.hostPath(want);
         for (JsonNode item : items) {
             String name = firstNonBlank(
-                    text(K8sJson.metadata(item), K8sJson.NAME),
+                    text(K8sJson.metadataNode(item), K8sJson.NAME),
                     text(item, "id"),
                     text(item, K8sJson.NAME));
             String specUrl = firstNonBlank(text(item.path("spec"), "url"), text(item, "url"));

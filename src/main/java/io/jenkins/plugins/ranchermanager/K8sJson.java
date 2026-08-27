@@ -25,20 +25,20 @@ final class K8sJson {
         return node == null || node.isNull() || node.isMissingNode();
     }
 
-    static JsonNode metadata(JsonNode node) {
+    static JsonNode metadataNode(JsonNode node) {
         return node.path(METADATA);
     }
 
-    static JsonNode status(JsonNode node) {
+    static JsonNode statusNode(JsonNode node) {
         return node.path(STATUS);
     }
 
-    static JsonNode summary(JsonNode node) {
-        return status(node).path(SUMMARY);
+    static JsonNode summaryNode(JsonNode node) {
+        return statusNode(node).path(SUMMARY);
     }
 
     static JsonNode metadataState(JsonNode node) {
-        return metadata(node).path(STATE);
+        return metadataNode(node).path(STATE);
     }
 
     static String namespaceOrDefault(String namespace) {

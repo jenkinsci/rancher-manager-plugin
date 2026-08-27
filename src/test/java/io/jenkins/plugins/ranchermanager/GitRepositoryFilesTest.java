@@ -295,13 +295,14 @@ class GitRepositoryFilesTest {
 
     @Test
     void readFile_rejectsBlockedHost() {
+        GitRepositoryFiles.CloneContext ctx = cloneCtx(null, null, null, null);
         IllegalArgumentException ex = assertThrows(
                 IllegalArgumentException.class,
                 () -> GitRepositoryFiles.readFile(
                         "http://169.254.169.254/repo.git",
                         "main",
                         "values.yaml",
-                        cloneCtx(null, null, null, null)));
+                        ctx));
         assertTrue(ex.getMessage().toLowerCase().contains("not allowed"));
     }
 

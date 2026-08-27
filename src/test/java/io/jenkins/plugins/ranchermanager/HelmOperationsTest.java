@@ -34,9 +34,9 @@ public class HelmOperationsTest {
     }
 
     @Test
-    public void parse_missingNameAborts() {
-        IOException e = assertThrows(
-                IOException.class, () -> HelmOperations.parse(MAPPER.readTree("{}")));
+    public void parse_missingNameAborts() throws Exception {
+        JsonNode empty = MAPPER.readTree("{}");
+        IOException e = assertThrows(IOException.class, () -> HelmOperations.parse(empty));
         assertEquals(
                 "Catalog install/upgrade response is not chartActionOutput (missing operationName).",
                 e.getMessage());
@@ -64,9 +64,8 @@ public class HelmOperationsTest {
 
     @Test
     public void parse_missingNamespaceAborts() throws Exception {
-        IOException e = assertThrows(
-                IOException.class,
-                () -> HelmOperations.parse(MAPPER.readTree("{\"operationName\":\"op\"}")));
+        JsonNode body = MAPPER.readTree("{\"operationName\":\"op\"}");
+        IOException e = assertThrows(IOException.class, () -> HelmOperations.parse(body));
         assertTrue(e.getMessage().contains("missing operationNamespace"));
         IOException missingBody = assertThrows(IOException.class, () -> HelmOperations.parse(null));
         assertTrue(missingBody.getMessage().contains("missing operationName"));

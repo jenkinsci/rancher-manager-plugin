@@ -19,8 +19,8 @@ class K8sJsonTest {
         JsonNode obj = MAPPER.readTree(
                 "{\"metadata\":{\"name\":\"n\"},\"status\":{\"summary\":{\"state\":\"active\"},\"data\":[]}}");
         assertFalse(K8sJson.missing(obj));
-        assertEquals("n", K8sJson.metadata(obj).path("name").asText());
-        assertEquals("active", K8sJson.summary(obj).path("state").asText());
+        assertEquals("n", K8sJson.metadataNode(obj).path("name").asText());
+        assertEquals("active", K8sJson.summaryNode(obj).path("state").asText());
         assertEquals("default", K8sJson.namespaceOrDefault(null));
         assertEquals("apps", K8sJson.namespaceOrDefault(" apps "));
     }

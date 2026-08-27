@@ -49,7 +49,7 @@ final class ClusterRepoStates {
     }
 
     private static boolean downloadedCondition(JsonNode repo) {
-        JsonNode conditions = K8sJson.status(repo).path("conditions");
+        JsonNode conditions = K8sJson.statusNode(repo).path("conditions");
         if (!conditions.isArray()) {
             return false;
         }
@@ -64,7 +64,7 @@ final class ClusterRepoStates {
     }
 
     private static String fingerprint(JsonNode repo) {
-        JsonNode status = K8sJson.status(repo);
+        JsonNode status = K8sJson.statusNode(repo);
         return SteveCatalog.fingerprint(
                 repo,
                 RancherClient.text(status, "downloadTime") + "|" + status.path("observedGeneration").asLong(0L));

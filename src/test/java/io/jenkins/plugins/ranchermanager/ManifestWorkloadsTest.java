@@ -42,13 +42,34 @@ class ManifestWorkloadsTest {
     @Test
     void parse_kindsAndSkips() {
         List<ManifestWorkloads.Workload> workloads = ManifestWorkloads.parse(
-                "apiVersion: apps/v1\nkind: StatefulSet\nmetadata:\n  name: db\n  namespace: data\n---\n"
-                        + "kind: DaemonSet\nmetadata:\n  name: agent\n---\n"
-                        + "kind: Job\nmetadata:\n  name: migrate\n---\n"
-                        + "kind: Deployment\nmetadata:\n  name: \"\"\n---\n"
-                        + "- not-a-map\n---\n"
-                        + "kind: Service\nmetadata:\n  name: svc\n---\n"
-                        + "kind: Deployment\nmetadata: not-a-map\n");
+                """
+                apiVersion: apps/v1
+                kind: StatefulSet
+                metadata:
+                  name: db
+                  namespace: data
+                ---
+                kind: DaemonSet
+                metadata:
+                  name: agent
+                ---
+                kind: Job
+                metadata:
+                  name: migrate
+                ---
+                kind: Deployment
+                metadata:
+                  name: ""
+                ---
+                - not-a-map
+                ---
+                kind: Service
+                metadata:
+                  name: svc
+                ---
+                kind: Deployment
+                metadata: not-a-map
+                """);
         assertEquals(3, workloads.size());
         assertEquals("apps.statefulsets/data/db", workloads.get(0).stevePath());
         assertEquals("DaemonSet default/agent", workloads.get(1).display());

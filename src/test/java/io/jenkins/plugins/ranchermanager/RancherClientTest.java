@@ -620,7 +620,7 @@ public class RancherClientTest {
     }
 
     @Test
-    public void waitUntilManifestWorkloadsReady_timeoutListsPods() throws Exception {
+    public void waitUntilManifestWorkloadsReady_timeoutListsPods() {
         deploymentsBody.set("{\"spec\":{\"replicas\":1},\"status\":{\"readyReplicas\":0}}");
         podsBody.set(PODS_IMAGE_PULL);
         List<ManifestWorkloads.Workload> workloads = ManifestWorkloads.parse(
@@ -638,7 +638,7 @@ public class RancherClientTest {
     }
 
     @Test
-    public void waitUntilManifestWorkloadsReady_unauthorizedRead() throws Exception {
+    public void waitUntilManifestWorkloadsReady_unauthorizedRead() {
         deploymentsCode.set(401);
         List<ManifestWorkloads.Workload> workloads = ManifestWorkloads.parse(
                 "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: web\n  namespace: apps\n");

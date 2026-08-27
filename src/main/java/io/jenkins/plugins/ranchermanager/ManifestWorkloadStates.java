@@ -99,7 +99,7 @@ final class ManifestWorkloadStates {
         if (succeeded >= completions) {
             return Progress.READY;
         }
-        JsonNode conditions = K8sJson.status(resource).path("conditions");
+        JsonNode conditions = K8sJson.statusNode(resource).path("conditions");
         if (conditions.isArray()) {
             for (JsonNode c : conditions) {
                 if ("Failed".equalsIgnoreCase(RancherClient.text(c, "type"))

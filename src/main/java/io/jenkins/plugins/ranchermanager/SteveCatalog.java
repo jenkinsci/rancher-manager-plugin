@@ -31,8 +31,8 @@ final class SteveCatalog {
 
     static String stateOf(JsonNode resource) {
         return RancherClient.firstNonBlank(
-                        RancherClient.text(K8sJson.summary(resource), K8sJson.STATE),
-                        RancherClient.text(K8sJson.status(resource), K8sJson.STATE))
+                        RancherClient.text(K8sJson.summaryNode(resource), K8sJson.STATE),
+                        RancherClient.text(K8sJson.statusNode(resource), K8sJson.STATE))
                 .toLowerCase(Locale.ROOT);
     }
 
@@ -40,8 +40,8 @@ final class SteveCatalog {
         if (resource == null) {
             return "";
         }
-        JsonNode summary = K8sJson.summary(resource);
-        JsonNode status = K8sJson.status(resource);
+        JsonNode summary = K8sJson.summaryNode(resource);
+        JsonNode status = K8sJson.statusNode(resource);
         return RancherClient.firstNonBlank(
                 RancherClient.text(summary, K8sJson.MESSAGE),
                 RancherClient.text(status, K8sJson.MESSAGE),
@@ -53,8 +53,8 @@ final class SteveCatalog {
         if (K8sJson.missing(before)) {
             return false;
         }
-        String rv = RancherClient.text(K8sJson.metadata(current), "resourceVersion");
-        String rvBefore = RancherClient.text(K8sJson.metadata(before), "resourceVersion");
+        String rv = RancherClient.text(K8sJson.metadataNode(current), "resourceVersion");
+        String rvBefore = RancherClient.text(K8sJson.metadataNode(before), "resourceVersion");
         if (!rv.isBlank() && !rvBefore.isBlank()) {
             return rv.equals(rvBefore);
         }
@@ -62,7 +62,7 @@ final class SteveCatalog {
     }
 
     static String fingerprint(JsonNode resource, String extra) {
-        JsonNode summary = K8sJson.summary(resource);
+        JsonNode summary = K8sJson.summaryNode(resource);
         return stateOf(resource)
                 + "|"
                 + summary.path(K8sJson.ERROR).asBoolean(false)
@@ -73,11 +73,11 @@ final class SteveCatalog {
     }
 
     private static boolean summaryFlag(JsonNode resource, String field) {
-        return K8sJson.summary(resource).path(field).asBoolean(false);
+        return K8sJson.summaryNode(resource).path(field).asBoolean(false);
     }
 
     private static boolean generationPending(JsonNode resource) {
-        long generation = K8sJson.metadata(resource).path("generation").asLong(0L);
-        return generation > 0L && K8sJson.status(resource).path("observedGeneration").asLong(0L) < generation;
+        long generation = K8sJson.metadataNode(resource).path("generation").asLong(0L);
+        return generation > 0L && K8sJson.statusNode(resource).path("observedGeneration").asLong(0L) < generation;
     }
 }

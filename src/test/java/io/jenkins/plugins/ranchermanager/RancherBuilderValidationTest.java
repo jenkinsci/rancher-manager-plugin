@@ -103,6 +103,12 @@ class RancherBuilderValidationTest {
         assertEquals(
                 FormValidation.Kind.OK,
                 d.doCheckRancherUrl("https://rancher.example", ConnectionMode.MANUAL, null).kind);
+    }
+
+    @Test
+    void helmDescriptorFillCredentials(JenkinsRule jenkins) {
+        RancherHelmBuilder.DescriptorImpl d =
+                jenkins.jenkins.getDescriptorByType(RancherHelmBuilder.DescriptorImpl.class);
         assertFalse(d.doFillRancherCredentialsIdItems(null, "").isEmpty());
         assertFalse(d.doFillValuesGitCredentialsIdItems(null, "").isEmpty());
     }
