@@ -82,25 +82,23 @@ final class ManifestWorkloads {
         if (yamlContent == null || yamlContent.isBlank()) {
             return List.of();
         }
-        final Iterable<Object> docs;
         try {
             LoaderOptions options = new LoaderOptions();
             Yaml yaml = new Yaml(new SafeConstructor(options));
-            docs = yaml.loadAll(yamlContent);
+            Set<Workload> unique = new LinkedHashSet<>();
+            for (Object doc : yaml.loadAll(yamlContent)) {
+                Workload workload = fromDoc(doc);
+                if (workload != null && !workload.name().isBlank()) {
+                    unique.add(workload);
+                }
+            }
+            return List.copyOf(unique);
         } catch (YAMLException e) {
             String msg = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
             throw new IllegalArgumentException(
                     "Cannot parse manifest YAML for readiness wait: "
                             + msg.replaceAll("\\s+", " ").trim());
         }
-        Set<Workload> unique = new LinkedHashSet<>();
-        for (Object doc : docs) {
-            Workload workload = fromDoc(doc);
-            if (workload != null && !workload.name().isBlank()) {
-                unique.add(workload);
-            }
-        }
-        return List.copyOf(unique);
     }
 
     static Set<String> namespaces(List<Workload> workloads) {

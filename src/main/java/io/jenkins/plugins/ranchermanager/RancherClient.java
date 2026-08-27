@@ -117,6 +117,18 @@ final class RancherClient implements AutoCloseable {
         return body;
     }
 
+    record ClusterAccess(String baseUrl, String apiToken, String clusterId) {}
+
+    record PollBudget(long timeoutMs, long intervalMs) {
+        long timeout() {
+            return Math.max(1L, timeoutMs);
+        }
+
+        long interval() {
+            return Math.max(1L, intervalMs);
+        }
+    }
+
     /**
      * After Steve apply: poll each workload from the YAML until ready or timeout.
      * Empty {@code workloads} is a no-op (ConfigMap-only manifests).
@@ -133,62 +145,65 @@ final class RancherClient implements AutoCloseable {
         if (workloads == null || workloads.isEmpty()) {
             return;
         }
-        long timeout = Math.max(1L, timeoutMs);
-        long interval = Math.max(1L, intervalMs);
-        long deadlineNs = System.nanoTime() + timeout * 1_000_000L;
+        ClusterAccess access = new ClusterAccess(baseUrl, apiToken, clusterId);
+        PollBudget budget = new PollBudget(timeoutMs, intervalMs);
+        long deadlineNs = System.nanoTime() + budget.timeout() * 1_000_000L;
         java.util.Map<String, String> lastStates = new java.util.LinkedHashMap<>();
         while (true) {
-            java.util.List<String> notReady = new java.util.ArrayList<>();
-            for (ManifestWorkloads.Workload workload : workloads) {
-                String stevePath = workload.kind().steveType()
-                        + "/"
-                        + encodePathSegment(workload.namespace())
-                        + "/"
-                        + encodePathSegment(workload.name());
-                JsonNode resource = getSteveNamespacedOrNull(
-                        baseUrl, apiToken, clusterId, stevePath, "get " + workload.display());
-                ManifestWorkloadStates.Progress progress =
-                        ManifestWorkloadStates.classify(workload.kind(), resource);
-                String state = ManifestWorkloadStates.displayState(workload.kind(), resource);
-                String key = workload.display();
-                String previous = lastStates.put(key, state);
-                if (previous == null || !previous.equals(state)) {
-                    waitInfo(key + " state=" + state);
-                }
-                if (progress != ManifestWorkloadStates.Progress.READY) {
-                    notReady.add(key + " (" + state + ")");
-                }
-            }
+            java.util.List<String> notReady = pollManifestNotReady(access, workloads, lastStates);
             if (notReady.isEmpty()) {
                 return;
             }
             long leftNs = deadlineNs - System.nanoTime();
             if (leftNs <= 0) {
-                String extras = manifestPodsHint(
-                        baseUrl, apiToken, clusterId, ManifestWorkloads.namespaces(workloads));
+                String extras = manifestPodsHint(access, ManifestWorkloads.namespaces(workloads));
                 throw new IOException(
                         withDetail(
                                 "Manifest workloads did not become ready within "
-                                        + Math.max(1L, (timeout + 999L) / 1000L)
+                                        + Math.max(1L, (budget.timeout() + 999L) / 1000L)
                                         + "s: "
                                         + String.join("; ", notReady),
                                 extras));
             }
-            sleepWait(interval, leftNs);
+            sleepWait(budget.interval(), leftNs);
         }
     }
 
-    private String manifestPodsHint(
-            String baseUrl, String apiToken, String clusterId, java.util.Set<String> namespaces)
+    private java.util.List<String> pollManifestNotReady(
+            ClusterAccess access,
+            java.util.List<ManifestWorkloads.Workload> workloads,
+            java.util.Map<String, String> lastStates)
+            throws IOException {
+        java.util.List<String> notReady = new java.util.ArrayList<>();
+        for (ManifestWorkloads.Workload workload : workloads) {
+            String stevePath = steveItemPath(
+                    workload.kind().steveType(), workload.namespace(), workload.name());
+            JsonNode resource = getSteveNamespacedOrNull(
+                    access, stevePath, "get " + workload.display());
+            String state = ManifestWorkloadStates.displayState(workload.kind(), resource);
+            String key = workload.display();
+            String previous = lastStates.put(key, state);
+            if (previous == null || !previous.equals(state)) {
+                waitInfo(key + " state=" + state);
+            }
+            if (ManifestWorkloadStates.classify(workload.kind(), resource)
+                    != ManifestWorkloadStates.Progress.READY) {
+                notReady.add(key + " (" + state + ")");
+            }
+        }
+        return notReady;
+    }
+
+    private String manifestPodsHint(ClusterAccess access, java.util.Set<String> namespaces)
             throws IOException {
         if (namespaces == null || namespaces.isEmpty()) {
             return "";
         }
         java.util.List<String> problems = new java.util.ArrayList<>();
         for (String ns : namespaces) {
-            JsonNode list = listSteveCollection(baseUrl, apiToken, clusterId, "pods", ns, "list pods");
-            for (JsonNode pod : HelmPods.collectionItems(list)) {
-                String line = ManifestPods.problemLine(pod);
+            JsonNode list = listSteveCollection(access, "pods", ns, "list pods");
+            for (JsonNode pod : K8sJson.collectionItems(list)) {
+                String line = HelmPods.problemLine(pod);
                 if (!line.isBlank()) {
                     problems.add(line);
                 }
@@ -197,12 +212,11 @@ final class RancherClient implements AutoCloseable {
         return HelmPods.joined(problems);
     }
 
-    private JsonNode getSteveNamespacedOrNull(
-            String baseUrl, String apiToken, String clusterId, String stevePath, String debugNote)
+    private JsonNode getSteveNamespacedOrNull(ClusterAccess access, String stevePath, String debugNote)
             throws IOException {
-        String url = clusterK8sPath(baseUrl, clusterId) + "/v1/" + stevePath;
+        String url = steveV1Url(access, stevePath);
         try {
-            return httpJson("GET", url, apiToken, null, debugNote);
+            return httpJson("GET", url, access.apiToken(), null, debugNote);
         } catch (IOException e) {
             if (isHttpStatus(e, 404)) {
                 return null;
@@ -236,31 +250,8 @@ final class RancherClient implements AutoCloseable {
             throw new IOException(err);
         }
         String cluster = requireClusterId(clusterId);
-        JsonNode list = listProjects(baseUrl, apiToken, cluster);
-        JsonNode items = list.path("data");
-        if (!items.isArray()) {
-            items = list.path("items");
-        }
-        if (!items.isArray()) {
-            throw new IOException(
-                    "Rancher did not return a project list — cannot resolve project '" + want + "'.");
-        }
-        boolean byId = RancherProjects.looksLikeProjectId(want);
-        String wantId = byId ? want.toLowerCase(Locale.ROOT) : want;
-        List<ResolvedProject> matches = new ArrayList<>();
-        for (JsonNode item : items) {
-            ResolvedProject candidate = projectFromItem(cluster, item);
-            if (candidate == null) {
-                continue;
-            }
-            if (byId) {
-                if (candidate.projectId().equalsIgnoreCase(wantId)) {
-                    matches.add(candidate);
-                }
-            } else if (want.equals(candidate.name())) {
-                matches.add(candidate);
-            }
-        }
+        List<ResolvedProject> matches =
+                matchingProjects(cluster, requireProjectItems(listProjects(baseUrl, apiToken, cluster), want), want);
         if (matches.isEmpty()) {
             throw new IOException(
                     "Rancher project '" + want + "' was not found in cluster '" + cluster + "'.");
@@ -270,6 +261,35 @@ final class RancherClient implements AutoCloseable {
                     "Rancher project name '" + want + "' is not unique in cluster '" + cluster + "'.");
         }
         return matches.get(0);
+    }
+
+    private static JsonNode requireProjectItems(JsonNode list, String want) throws IOException {
+        JsonNode items = list.path("data");
+        if (!items.isArray()) {
+            items = list.path("items");
+        }
+        if (!items.isArray()) {
+            throw new IOException(
+                    "Rancher did not return a project list — cannot resolve project '" + want + "'.");
+        }
+        return items;
+    }
+
+    private static List<ResolvedProject> matchingProjects(String cluster, JsonNode items, String want) {
+        boolean byId = RancherProjects.looksLikeProjectId(want);
+        String wantId = byId ? want.toLowerCase(Locale.ROOT) : want;
+        List<ResolvedProject> matches = new ArrayList<>();
+        for (JsonNode item : items) {
+            ResolvedProject candidate = projectFromItem(cluster, item);
+            if (candidate != null && matchesProject(candidate, want, wantId, byId)) {
+                matches.add(candidate);
+            }
+        }
+        return matches;
+    }
+
+    private static boolean matchesProject(ResolvedProject candidate, String want, String wantId, boolean byId) {
+        return byId ? candidate.projectId().equalsIgnoreCase(wantId) : want.equals(candidate.name());
     }
 
     /**
@@ -330,11 +350,11 @@ final class RancherClient implements AutoCloseable {
 
     static ObjectNode buildNamespaceCreateBody(String namespace, ResolvedProject project) {
         ObjectNode body = MAPPER.createObjectNode();
-        body.put("apiVersion", "v1");
+        body.put(K8sJson.API_VERSION, "v1");
         body.put("kind", "Namespace");
-        ObjectNode metadata = body.putObject("metadata");
-        metadata.put("name", namespace);
-        metadata.putObject("annotations").put(PROJECT_ID_FIELD, project.catalogId());
+        ObjectNode metadata = body.putObject(K8sJson.METADATA);
+        metadata.put(K8sJson.NAME, namespace);
+        metadata.putObject(K8sJson.ANNOTATIONS).put(PROJECT_ID_FIELD, project.catalogId());
         metadata.putObject("labels").put(PROJECT_ID_FIELD, project.projectId());
         return body;
     }
@@ -372,11 +392,11 @@ final class RancherClient implements AutoCloseable {
 
     static ObjectNode buildResourceQuotaBody(String namespace) {
         ObjectNode body = MAPPER.createObjectNode();
-        body.put("apiVersion", "v1");
+        body.put(K8sJson.API_VERSION, "v1");
         body.put("kind", "ResourceQuota");
-        ObjectNode metadata = body.putObject("metadata");
-        metadata.put("name", RESOURCE_QUOTA_NAME);
-        metadata.put("namespace", namespace);
+        ObjectNode metadata = body.putObject(K8sJson.METADATA);
+        metadata.put(K8sJson.NAME, RESOURCE_QUOTA_NAME);
+        metadata.put(K8sJson.NAMESPACE, namespace);
         ObjectNode hard = body.putObject("spec").putObject("hard");
         hard.put("pods", "10");
         hard.put("requests.cpu", "2");
@@ -388,11 +408,11 @@ final class RancherClient implements AutoCloseable {
 
     static ObjectNode buildLimitRangeBody(String namespace) {
         ObjectNode body = MAPPER.createObjectNode();
-        body.put("apiVersion", "v1");
+        body.put(K8sJson.API_VERSION, "v1");
         body.put("kind", "LimitRange");
-        ObjectNode metadata = body.putObject("metadata");
-        metadata.put("name", LIMIT_RANGE_NAME);
-        metadata.put("namespace", namespace);
+        ObjectNode metadata = body.putObject(K8sJson.METADATA);
+        metadata.put(K8sJson.NAME, LIMIT_RANGE_NAME);
+        metadata.put(K8sJson.NAMESPACE, namespace);
         ObjectNode container = body.putObject("spec").putArray("limits").addObject();
         container.put("type", "Container");
         ObjectNode defaults = container.putObject("default");
@@ -406,6 +426,46 @@ final class RancherClient implements AutoCloseable {
 
     private static String encodePathSegment(String value) {
         return URLEncoder.encode(value, StandardCharsets.UTF_8).replace("+", "%20");
+    }
+
+    private static String steveCollectionPath(String type, String namespace) {
+        return String.join("/", type, encodePathSegment(namespace));
+    }
+
+    private static String steveItemPath(String type, String namespace, String name) {
+        return String.join("/", type, encodePathSegment(namespace), encodePathSegment(name));
+    }
+
+    private static String steveV1Url(String baseUrl, String clusterId, String stevePath) {
+        return clusterK8sPath(baseUrl, clusterId) + "/v1/" + stevePath;
+    }
+
+    private static String steveV1Url(ClusterAccess access, String stevePath) {
+        return steveV1Url(access.baseUrl(), access.clusterId(), stevePath);
+    }
+
+    private static String quoted(String value) {
+        return "\"" + value + "\"";
+    }
+
+    private static String inNamespace(String subject, String namespace) {
+        String clause = "in namespace " + quoted(namespace);
+        if (subject == null || subject.isBlank()) {
+            return clause;
+        }
+        return subject + " " + clause;
+    }
+
+    private static String helmAppRef(String rel) {
+        return "Helm app " + quoted(rel);
+    }
+
+    private static String helmOperationRef(HelmOperations.ChartAction action) {
+        return inNamespace("Helm operation " + quoted(action.operationName()), action.operationNamespace());
+    }
+
+    private static String secondsLabel(long timeoutMs) {
+        return String.valueOf(Math.max(1L, (timeoutMs + 999L) / 1000L));
     }
 
     private JsonNode listProjects(String baseUrl, String apiToken, String clusterId) throws IOException {
@@ -472,9 +532,9 @@ final class RancherClient implements AutoCloseable {
         if (namespaceJson == null) {
             return "";
         }
-        JsonNode annotations = namespaceJson.path("metadata").path("annotations");
+        JsonNode annotations = K8sJson.metadataNode(namespaceJson).path(K8sJson.ANNOTATIONS);
         if (annotations.isMissingNode() || annotations.isNull() || !annotations.isObject()) {
-            annotations = namespaceJson.path("annotations");
+            annotations = namespaceJson.path(K8sJson.ANNOTATIONS);
         }
         return text(annotations, PROJECT_ID_FIELD);
     }
@@ -487,15 +547,15 @@ final class RancherClient implements AutoCloseable {
         if (!itemCluster.isBlank() && !itemCluster.equals(clusterId)) {
             return null;
         }
-        String id = firstNonBlank(text(item, "id"), text(item.path("metadata"), "name"));
+        String id = firstNonBlank(text(item, "id"), text(K8sJson.metadataNode(item), K8sJson.NAME));
         String shortId = shortProjectId(id);
         if (shortId.isBlank() || !RancherProjects.looksLikeProjectId(shortId)) {
-            shortId = shortProjectId(text(item.path("metadata"), "name"));
+            shortId = shortProjectId(text(K8sJson.metadataNode(item), K8sJson.NAME));
         }
         if (shortId.isBlank() || !RancherProjects.looksLikeProjectId(shortId)) {
             return null;
         }
-        String name = firstNonBlank(text(item, "name"), text(item.path("metadata"), "name"), shortId);
+        String name = firstNonBlank(text(item, K8sJson.NAME), text(K8sJson.metadataNode(item), K8sJson.NAME), shortId);
         return new ResolvedProject(clusterId, shortId.toLowerCase(Locale.ROOT), name);
     }
 
@@ -560,9 +620,9 @@ final class RancherClient implements AutoCloseable {
         String hostPath = ChartRepositoryUrls.hostPath(want);
         for (JsonNode item : items) {
             String name = firstNonBlank(
-                    text(item.path("metadata"), "name"),
+                    text(K8sJson.metadataNode(item), K8sJson.NAME),
                     text(item, "id"),
-                    text(item, "name"));
+                    text(item, K8sJson.NAME));
             String specUrl = firstNonBlank(text(item.path("spec"), "url"), text(item, "url"));
             if (name.isBlank() || specUrl.isBlank()) {
                 continue;
@@ -681,124 +741,108 @@ final class RancherClient implements AutoCloseable {
      * GET operation {@code /logs} once on operation abort (not on wait ticks).
      */
     void waitUntilHelmReleaseSettled(
-            String baseUrl,
-            String apiToken,
-            String clusterId,
+            ClusterAccess access,
             String namespace,
             String releaseName,
             JsonNode chartActionOutput,
             JsonNode before,
-            long timeoutMs,
-            long intervalMs)
+            PollBudget budget)
             throws IOException, InterruptedException {
         if (releaseName == null || releaseName.isBlank()) {
             throw new IOException("Helm release name is required.");
         }
         HelmOperations.ChartAction action = HelmOperations.parse(chartActionOutput);
-        String ns = namespace == null || namespace.isBlank() ? "default" : namespace.trim();
+        String ns = K8sJson.namespaceOrDefault(namespace);
         String rel = releaseName.trim();
-        long timeout = Math.max(1L, timeoutMs);
-        long interval = Math.max(1L, intervalMs);
-        long deadlineNs = System.nanoTime() + timeout * 1_000_000L;
-        waitUntilHelmOperationActive(
-                baseUrl, apiToken, clusterId, action, timeout, interval, deadlineNs);
-        waitUntilHelmAppSettled(
-                baseUrl, apiToken, clusterId, ns, rel, before, timeout, interval, deadlineNs);
+        long deadlineNs = System.nanoTime() + budget.timeout() * 1_000_000L;
+        waitUntilHelmOperationActive(access, action, budget, deadlineNs);
+        waitUntilHelmAppSettled(access, ns, rel, before, budget, deadlineNs);
     }
 
     private void waitUntilHelmOperationActive(
-            String baseUrl,
-            String apiToken,
-            String clusterId,
+            ClusterAccess access,
             HelmOperations.ChartAction action,
-            long timeoutMs,
-            long intervalMs,
+            PollBudget budget,
             long deadlineNs)
             throws IOException, InterruptedException {
         String lastState = null;
         while (true) {
-            JsonNode operation = getHelmOperation(
-                    baseUrl, apiToken, clusterId, action.operationNamespace(), action.operationName());
+            JsonNode operation = getHelmOperation(access, action);
             String state = HelmOperations.displayState(operation);
             if (!state.equals(lastState)) {
-                String message = HelmOperations.failureMessage(operation);
-                if (message.isBlank()) {
-                    waitInfo("Helm operation state=" + state);
-                } else {
-                    waitInfo("Helm operation state=" + state + " message=" + sanitizeErrorDetail(message));
-                }
+                logOperationState(state, HelmOperations.failureMessage(operation));
                 lastState = state;
             }
             HelmOperations.Progress progress = HelmOperations.classify(operation);
             long leftNs = deadlineNs - System.nanoTime();
             if (progress == HelmOperations.Progress.FAILED) {
-                throw helmOperationFailed(baseUrl, apiToken, clusterId, action, operation);
+                throw helmOperationFailed(access, action, operation);
             }
             if (progress == HelmOperations.Progress.ACTIVE) {
                 return;
             }
             if (leftNs <= 0) {
                 throw helmOperationTimeout(
-                        baseUrl,
-                        apiToken,
-                        clusterId,
-                        action,
-                        timeoutMs,
-                        state,
-                        HelmOperations.failureMessage(operation));
+                        access, action, budget.timeout(), state, HelmOperations.failureMessage(operation));
             }
-            sleepWait(intervalMs, leftNs);
+            sleepWait(budget.interval(), leftNs);
         }
     }
 
+    private void logOperationState(String state, String message) {
+        if (message.isBlank()) {
+            waitInfo("Helm operation state=" + state);
+            return;
+        }
+        waitInfo("Helm operation state=" + state + " message=" + sanitizeErrorDetail(message));
+    }
+
     private void waitUntilHelmAppSettled(
-            String baseUrl,
-            String apiToken,
-            String clusterId,
+            ClusterAccess access,
             String ns,
             String rel,
             JsonNode before,
-            long timeoutMs,
-            long intervalMs,
+            PollBudget budget,
             long deadlineNs)
             throws IOException, InterruptedException {
         String lastState = null;
         List<String> lastBoard = List.of();
         while (true) {
-            JsonNode app = getHelmAppOrNull(baseUrl, apiToken, clusterId, ns, rel);
+            JsonNode app = getHelmAppOrNull(access.baseUrl(), access.apiToken(), access.clusterId(), ns, rel);
             lastState = logWaitBoard(app, before, lastState, lastBoard);
             lastBoard = nextBoard(app, before, lastBoard);
             HelmAppStates.Progress progress = HelmAppStates.classify(app, before);
-            HelmRelationships.Gate gate = HelmRelationships.gate(app);
+            boolean workloadsReady = HelmRelationships.gate(app) == HelmRelationships.Gate.PASSED;
+            if (progress == HelmAppStates.Progress.READY && workloadsReady) {
+                return;
+            }
+            if (progress == HelmAppStates.Progress.FAILED && workloadsReady) {
+                throw helmAppFailed(rel, app, true, abortExtras(app, access, ns, rel));
+            }
             long leftNs = deadlineNs - System.nanoTime();
-            if (progress == HelmAppStates.Progress.WAITING) {
-                if (leftNs <= 0) {
-                    throw helmWaitTimeout(
-                            rel,
-                            ns,
-                            timeoutMs,
-                            HelmAppStates.displayState(app),
-                            abortExtras(app, baseUrl, apiToken, clusterId, ns, rel));
-                }
-                sleepWait(intervalMs, leftNs);
-                continue;
-            }
-            if (gate == HelmRelationships.Gate.PASSED) {
-                if (progress == HelmAppStates.Progress.READY) {
-                    return;
-                }
-                throw helmAppFailed(
-                        rel, app, true, abortExtras(app, baseUrl, apiToken, clusterId, ns, rel));
-            }
             if (leftNs <= 0) {
-                String extras = abortExtras(app, baseUrl, apiToken, clusterId, ns, rel);
-                if (progress == HelmAppStates.Progress.READY) {
-                    throw helmWorkloadTimeout(rel, ns, timeoutMs, extras);
-                }
-                throw helmAppFailed(rel, app, false, extras);
+                throw helmAppGiveUp(access, ns, rel, budget.timeout(), app, progress);
             }
-            sleepWait(intervalMs, leftNs);
+            sleepWait(budget.interval(), leftNs);
         }
+    }
+
+    private IOException helmAppGiveUp(
+            ClusterAccess access,
+            String ns,
+            String rel,
+            long timeoutMs,
+            JsonNode app,
+            HelmAppStates.Progress progress)
+            throws IOException {
+        String extras = abortExtras(app, access, ns, rel);
+        if (progress == HelmAppStates.Progress.WAITING) {
+            return helmWaitTimeout(rel, ns, timeoutMs, HelmAppStates.displayState(app), extras);
+        }
+        if (progress == HelmAppStates.Progress.READY) {
+            return helmWorkloadTimeout(rel, ns, timeoutMs, extras);
+        }
+        return helmAppFailed(rel, app, false, extras);
     }
 
     private void waitInfo(String message) {
@@ -830,20 +874,13 @@ final class RancherClient implements AutoCloseable {
         return HelmRelationships.boardLines(app);
     }
 
-    private String abortExtras(
-            JsonNode app,
-            String baseUrl,
-            String apiToken,
-            String clusterId,
-            String namespace,
-            String releaseName)
+    private String abortExtras(JsonNode app, ClusterAccess access, String namespace, String releaseName)
             throws IOException {
         String inactive = HelmRelationships.inactiveWorkloads(app);
         if (!HelmRelationships.hasInactiveWorkload(app)) {
             return inactive;
         }
-        JsonNode list = listSteveCollection(
-                baseUrl, apiToken, clusterId, "pods", namespace, "list pods");
+        JsonNode list = listSteveCollection(access, "pods", namespace, "list pods");
         return withDetail(inactive, HelmPods.joined(HelmPods.problems(list, releaseName)));
     }
 
@@ -852,20 +889,11 @@ final class RancherClient implements AutoCloseable {
     }
 
     private JsonNode listSteveCollection(
-            String baseUrl,
-            String apiToken,
-            String clusterId,
-            String type,
-            String namespace,
-            String debugNote)
+            ClusterAccess access, String type, String namespace, String debugNote)
             throws IOException {
-        String url = clusterK8sPath(baseUrl, clusterId)
-                + "/v1/"
-                + type
-                + "/"
-                + encodePathSegment(namespace);
+        String url = steveV1Url(access, steveCollectionPath(type, namespace));
         try {
-            return httpJson("GET", url, apiToken, null, debugNote);
+            return httpJson("GET", url, access.apiToken(), null, debugNote);
         } catch (IOException e) {
             if (isHttpStatus(e, 404)) {
                 ObjectNode empty = MAPPER.createObjectNode();
@@ -874,11 +902,8 @@ final class RancherClient implements AutoCloseable {
             }
             if (isHttpStatus(e, 401) || isHttpStatus(e, 403)) {
                 throw new IOException(
-                        "Cannot list "
-                                + type
-                                + " in namespace \""
-                                + namespace
-                                + "\": token cannot list "
+                        "Cannot list " + type + " " + inNamespace(null, namespace)
+                                + ": token cannot list "
                                 + type,
                         e);
             }
@@ -890,12 +915,9 @@ final class RancherClient implements AutoCloseable {
             String rel, String ns, long timeoutMs, String state, String extras) {
         return new IOException(
                 withDetail(
-                        "Helm app \""
-                                + rel
-                                + "\" in namespace \""
-                                + ns
-                                + "\" did not become ready within "
-                                + Math.max(1L, (timeoutMs + 999L) / 1000L)
+                        inNamespace(helmAppRef(rel), ns)
+                                + " did not become ready within "
+                                + secondsLabel(timeoutMs)
                                 + "s (state="
                                 + (state == null || state.isBlank() ? "unknown" : state)
                                 + ")",
@@ -905,12 +927,9 @@ final class RancherClient implements AutoCloseable {
     private static IOException helmWorkloadTimeout(String rel, String ns, long timeoutMs, String extras) {
         return new IOException(
                 withDetail(
-                        "Helm app \""
-                                + rel
-                                + "\" in namespace \""
-                                + ns
-                                + "\" workloads not ready within "
-                                + Math.max(1L, (timeoutMs + 999L) / 1000L)
+                        inNamespace(helmAppRef(rel), ns)
+                                + " workloads not ready within "
+                                + secondsLabel(timeoutMs)
                                 + "s",
                         extras));
     }
@@ -920,32 +939,19 @@ final class RancherClient implements AutoCloseable {
         String detail = sanitizeErrorDetail(HelmAppStates.failureDetail(last));
         String suffix = detail.isBlank() ? "" : ": " + detail;
         String cluster = clusterServing ? "cluster serving" : "cluster not serving";
-        return new IOException(withDetail("Helm app \"" + rel + "\" failed" + suffix + " (" + cluster + ")", extras));
+        return new IOException(withDetail(helmAppRef(rel) + " failed" + suffix + " (" + cluster + ")", extras));
     }
 
     private IOException helmOperationFailed(
-            String baseUrl,
-            String apiToken,
-            String clusterId,
-            HelmOperations.ChartAction action,
-            JsonNode operation) {
+            ClusterAccess access, HelmOperations.ChartAction action, JsonNode operation) {
         String detail = sanitizeErrorDetail(HelmOperations.failureMessage(operation));
         String suffix = detail.isBlank() ? "" : ": " + detail;
         return new IOException(
-                withDetail(
-                        "Helm operation \""
-                                + action.operationName()
-                                + "\" in namespace \""
-                                + action.operationNamespace()
-                                + "\" failed"
-                                + suffix,
-                        helmOperationLogExtras(baseUrl, apiToken, clusterId, action)));
+                withDetail(helmOperationRef(action) + " failed" + suffix, helmOperationLogExtras(access, action)));
     }
 
     private IOException helmOperationTimeout(
-            String baseUrl,
-            String apiToken,
-            String clusterId,
+            ClusterAccess access,
             HelmOperations.ChartAction action,
             long timeoutMs,
             String state,
@@ -955,28 +961,20 @@ final class RancherClient implements AutoCloseable {
         String suffix = detail.isBlank() ? "" : ": " + detail;
         return new IOException(
                 withDetail(
-                        "Helm operation \""
-                                + action.operationName()
-                                + "\" in namespace \""
-                                + action.operationNamespace()
-                                + "\" did not become ready within "
-                                + Math.max(1L, (timeoutMs + 999L) / 1000L)
+                        helmOperationRef(action)
+                                + " did not become ready within "
+                                + secondsLabel(timeoutMs)
                                 + "s (state="
                                 + st
                                 + ")"
                                 + suffix,
-                        helmOperationLogExtras(baseUrl, apiToken, clusterId, action)));
+                        helmOperationLogExtras(access, action)));
     }
 
-    private String helmOperationLogExtras(
-            String baseUrl,
-            String apiToken,
-            String clusterId,
-            HelmOperations.ChartAction action) {
+    private String helmOperationLogExtras(ClusterAccess access, HelmOperations.ChartAction action) {
         try {
-            String raw = getHelmOperationLogs(
-                    baseUrl, apiToken, clusterId, action.operationNamespace(), action.operationName());
-            if (raw == null || raw.isBlank()) {
+            String raw = getHelmOperationLogs(access, action);
+            if (raw.isBlank()) {
                 return "helm job log was empty";
             }
             return formatHelmOperationLog(raw);
@@ -999,20 +997,16 @@ final class RancherClient implements AutoCloseable {
         return "cannot read operation logs";
     }
 
-    private String getHelmOperationLogs(
-            String baseUrl,
-            String apiToken,
-            String clusterId,
-            String operationNamespace,
-            String operationName)
+    private String getHelmOperationLogs(ClusterAccess access, HelmOperations.ChartAction action)
             throws IOException {
-        String url = clusterK8sPath(baseUrl, clusterId)
-                + "/v1/catalog.cattle.io.operations/"
-                + encodePathSegment(operationNamespace.trim())
-                + "/"
-                + encodePathSegment(operationName.trim())
-                + "/logs";
-        byte[] bytes = httpRaw("GET", url, apiToken, null, null, null, "get helm operation logs");
+        String url = steveV1Url(
+                access,
+                steveItemPath(
+                        "catalog.cattle.io.operations",
+                        action.operationNamespace().trim(),
+                        action.operationName().trim())
+                        + "/logs");
+        byte[] bytes = httpRaw("GET", url, access.apiToken(), null, null, null, "get helm operation logs");
         if (bytes.length == 0) {
             return "";
         }
@@ -1049,13 +1043,9 @@ final class RancherClient implements AutoCloseable {
         if (releaseName == null || releaseName.isBlank()) {
             return null;
         }
-        String ns = namespace == null || namespace.isBlank() ? "default" : namespace.trim();
+        String ns = K8sJson.namespaceOrDefault(namespace);
         String rel = releaseName.trim();
-        String url = clusterK8sPath(baseUrl, clusterId)
-                + "/v1/catalog.cattle.io.apps/"
-                + encodePathSegment(ns)
-                + "/"
-                + encodePathSegment(rel);
+        String url = steveV1Url(baseUrl, clusterId, steveItemPath("catalog.cattle.io.apps", ns, rel));
         try {
             return httpJson("GET", url, apiToken, null, "get helm app");
         } catch (IOException e) {
@@ -1064,44 +1054,27 @@ final class RancherClient implements AutoCloseable {
             }
             if (isHttpStatus(e, 401) || isHttpStatus(e, 403)) {
                 throw new IOException(
-                        "Cannot get Helm app \""
-                                + rel
-                                + "\" in namespace \""
-                                + ns
-                                + "\": token cannot read catalog apps",
+                        "Cannot get " + inNamespace(helmAppRef(rel), ns) + ": token cannot read catalog apps",
                         e);
             }
             throw e;
         }
     }
 
-    private JsonNode getHelmOperation(
-            String baseUrl,
-            String apiToken,
-            String clusterId,
-            String operationNamespace,
-            String operationName)
+    private JsonNode getHelmOperation(ClusterAccess access, HelmOperations.ChartAction action)
             throws IOException {
-        String ns = operationNamespace.trim();
-        String name = operationName.trim();
-        String url = clusterK8sPath(baseUrl, clusterId)
-                + "/v1/catalog.cattle.io.operations/"
-                + encodePathSegment(ns)
-                + "/"
-                + encodePathSegment(name);
+        String ns = action.operationNamespace().trim();
+        String name = action.operationName().trim();
+        String url = steveV1Url(access, steveItemPath("catalog.cattle.io.operations", ns, name));
         try {
-            return httpJson("GET", url, apiToken, null, "get helm operation");
+            return httpJson("GET", url, access.apiToken(), null, "get helm operation");
         } catch (IOException e) {
             if (isHttpStatus(e, 404)) {
                 return null;
             }
             if (isHttpStatus(e, 401) || isHttpStatus(e, 403)) {
                 throw new IOException(
-                        "Cannot get Helm operation \""
-                                + name
-                                + "\" in namespace \""
-                                + ns
-                                + "\": token cannot read operations",
+                        "Cannot get " + helmOperationRef(action) + ": token cannot read operations",
                         e);
             }
             throw e;
@@ -1130,14 +1103,8 @@ final class RancherClient implements AutoCloseable {
         if (releaseName == null || releaseName.isBlank()) {
             throw new IOException("Helm release name is required for uninstall.");
         }
-        String ns = namespace == null || namespace.isBlank() ? "default" : namespace.trim();
-        String encodedNs = URLEncoder.encode(ns, StandardCharsets.UTF_8).replace("+", "%20");
-        String encodedRel = URLEncoder.encode(releaseName.trim(), StandardCharsets.UTF_8).replace("+", "%20");
-        String url = clusterK8sPath(baseUrl, clusterId)
-                + "/v1/catalog.cattle.io.apps/"
-                + encodedNs
-                + "/"
-                + encodedRel
+        String ns = K8sJson.namespaceOrDefault(namespace);
+        String url = steveV1Url(baseUrl, clusterId, steveItemPath("catalog.cattle.io.apps", ns, releaseName.trim()))
                 + "?action=uninstall";
         ObjectNode body = MAPPER.createObjectNode();
         try {
@@ -1219,7 +1186,7 @@ final class RancherClient implements AutoCloseable {
     private static ObjectNode buildHelmActionBody(HelmChartRequest request, boolean upgrade) {
         ObjectNode body = MAPPER.createObjectNode();
         if (request.namespace != null && !request.namespace.isBlank()) {
-            body.put("namespace", request.namespace.trim());
+            body.put(K8sJson.NAMESPACE, request.namespace.trim());
         }
         if (request.projectId == null || request.projectId.isBlank()) {
             throw new IllegalArgumentException("Project is required for Helm catalog install.");
@@ -1286,6 +1253,25 @@ final class RancherClient implements AutoCloseable {
         assertRequestHostsAllowed(apiUrl, uri);
 
         String m = method == null ? "GET" : method.toUpperCase(Locale.ROOT);
+        HttpRequest request = buildHttpRequest(uri, m, apiToken, body, contentType, accept);
+
+        long startedNs = System.nanoTime();
+        HttpResponse<byte[]> response = sendHttp(request, uri);
+        long durationMs = (System.nanoTime() - startedNs) / 1_000_000L;
+        String path = RancherBuildLogger.safeRequestPath(uri);
+
+        assertResponseHostAllowed(response);
+        int code = response.statusCode();
+        byte[] bytes = response.body() == null ? new byte[0] : response.body();
+        logHttp(m, path, durationMs, debugNote, code);
+        if (code < 200 || code >= 300) {
+            throw httpError(code, bytes);
+        }
+        return bytes;
+    }
+
+    private HttpRequest buildHttpRequest(
+            URI uri, String method, String apiToken, byte[] body, String contentType, String accept) {
         HttpRequest.Builder builder = HttpRequest.newBuilder(uri)
                 .timeout(Duration.ofMillis(Math.max(1, readTimeoutMs)))
                 .header("Authorization", "Bearer " + apiToken);
@@ -1293,37 +1279,25 @@ final class RancherClient implements AutoCloseable {
             builder.header("Accept", accept);
         }
         if (body != null && body.length > 0) {
-            if (contentType == null || contentType.isBlank()) {
-                contentType = "application/octet-stream";
-            }
-            builder.header("Content-Type", contentType);
-            builder.method(m, HttpRequest.BodyPublishers.ofByteArray(body));
-        } else if ("GET".equals(m)) {
+            String type = contentType == null || contentType.isBlank() ? "application/octet-stream" : contentType;
+            builder.header("Content-Type", type);
+            builder.method(method, HttpRequest.BodyPublishers.ofByteArray(body));
+        } else if ("GET".equals(method)) {
             builder.GET();
         } else {
-            builder.method(m, HttpRequest.BodyPublishers.noBody());
+            builder.method(method, HttpRequest.BodyPublishers.noBody());
         }
+        return builder.build();
+    }
 
-        long startedNs = System.nanoTime();
-        HttpResponse<byte[]> response = sendHttp(builder.build(), uri);
-        long durationMs = (System.nanoTime() - startedNs) / 1_000_000L;
-        String path = RancherBuildLogger.safeRequestPath(uri);
-
-        assertResponseHostAllowed(response);
-        int code = response.statusCode();
-        byte[] bytes = response.body() == null ? new byte[0] : response.body();
-        if (code < 200 || code >= 300) {
-            if (buildLog != null) {
-                buildLog.http(m, path, durationMs, debugNote);
-            }
-            throw httpError(code, bytes, uri);
-        }
+    private void logHttp(String method, String path, long durationMs, String debugNote, int code) {
         if (buildLog != null) {
-            buildLog.http(m, path, durationMs, debugNote);
-        } else {
-            LOGGER.log(Level.FINE, "{0} {1} ({2}ms)", new Object[] {m, path, durationMs});
+            buildLog.http(method, path, durationMs, debugNote);
+            return;
         }
-        return bytes;
+        if (code >= 200 && code < 300) {
+            LOGGER.log(Level.FINE, "{0} {1} ({2}ms)", new Object[] {method, path, durationMs});
+        }
     }
 
     private static void requireApiToken(String apiToken) throws IOException {
@@ -1472,7 +1446,7 @@ final class RancherClient implements AutoCloseable {
         return "Cannot connect to Rancher host/port: " + host + suffix;
     }
 
-    static IOException httpError(int code, byte[] bodyBytes, URI uri) {
+    static IOException httpError(int code, byte[] bodyBytes) {
         if (looksLikeHtml(bodyBytes)) {
             return new IOException(
                     HTTP_STATUS_PREFIX

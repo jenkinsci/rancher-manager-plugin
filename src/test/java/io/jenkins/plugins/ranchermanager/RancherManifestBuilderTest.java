@@ -492,6 +492,22 @@ public class RancherManifestBuilderTest {
         assertFalse(lastApplyBody.get().contains("namespace: default"));
     }
 
+    @Test
+    public void validateOnly_repositorySource_skipsGit(JenkinsRule jenkins) throws Exception {
+        configureRancher(jenkins);
+        FreeStyleProject project = jenkins.createFreeStyleProject();
+        RancherManifestBuilder step = new RancherManifestBuilder("local");
+        step.setManifestSource(RancherManifestBuilder.SOURCE_REPOSITORY);
+        step.setRepositoryUrl("https://gitlab.example/group/manifests.git");
+        step.setValidateOnly(true);
+        step.setVerboseLogging(true);
+        project.getBuildersList().add(step);
+
+        FreeStyleBuild build = jenkins.buildAndAssertSuccess(project);
+        jenkins.assertLogContains("Summary outcome=validated", build);
+        assertFalse(applyCalled.get());
+    }
+
     private static RancherManifestBuilder minimalYamlStep() {
         RancherManifestBuilder step = new RancherManifestBuilder("local");
         step.setManifestSource(RancherManifestBuilder.SOURCE_YAML);

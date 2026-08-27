@@ -8,6 +8,7 @@ import java.io.IOException;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class HelmOperationsTest {
 
@@ -33,9 +34,9 @@ public class HelmOperationsTest {
     }
 
     @Test
-    public void parse_missingNameAborts() {
-        IOException e = assertThrows(
-                IOException.class, () -> HelmOperations.parse(MAPPER.readTree("{}")));
+    public void parse_missingNameAborts() throws Exception {
+        JsonNode empty = MAPPER.readTree("{}");
+        IOException e = assertThrows(IOException.class, () -> HelmOperations.parse(empty));
         assertEquals(
                 "Catalog install/upgrade response is not chartActionOutput (missing operationName).",
                 e.getMessage());
@@ -59,6 +60,28 @@ public class HelmOperationsTest {
     @Test
     public void classify_errorWinsOverTransitioning() throws Exception {
         assertEquals(HelmOperations.Progress.FAILED, HelmOperations.classify(op(true, true, "error")));
+    }
+
+    @Test
+    public void parse_missingNamespaceAborts() throws Exception {
+        JsonNode body = MAPPER.readTree("{\"operationName\":\"op\"}");
+        IOException e = assertThrows(IOException.class, () -> HelmOperations.parse(body));
+        assertTrue(e.getMessage().contains("missing operationNamespace"));
+        IOException missingBody = assertThrows(IOException.class, () -> HelmOperations.parse(null));
+        assertTrue(missingBody.getMessage().contains("missing operationName"));
+    }
+
+    @Test
+    public void displayState_missingAndFlagsWithoutName() throws Exception {
+        assertEquals("missing", HelmOperations.displayState(null));
+        assertEquals("", HelmOperations.failureMessage(null));
+        JsonNode errorNoName = MAPPER.readTree(
+                "{\"metadata\":{\"state\":{\"error\":true,\"transitioning\":false}}}");
+        assertEquals("error", HelmOperations.displayState(errorNoName));
+        JsonNode transitioningNoName = MAPPER.readTree(
+                "{\"metadata\":{\"state\":{\"error\":false,\"transitioning\":true}}}");
+        assertEquals("transitioning", HelmOperations.displayState(transitioningNoName));
+        assertEquals(HelmOperations.Progress.WAITING, HelmOperations.classify(MAPPER.readTree("{}")));
     }
 
     @Test

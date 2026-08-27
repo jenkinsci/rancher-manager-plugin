@@ -590,6 +590,65 @@ public class RancherClientTest {
                 RancherClient.trailingApiDetail(
                         "HTTP 403 - Rancher API token lacks permission - Method POST not supported"));
         assertEquals("", RancherClient.trailingApiDetail("HTTP 403 - Rancher API token lacks permission"));
+        assertEquals("", RancherClient.trailingApiDetail(null));
+        assertEquals("", RancherClient.trailingApiDetail("connection reset"));
+        assertEquals("", RancherClient.trailingApiDetail("HTTP 500"));
+    }
+
+    @Test
+    public void waitUntilManifestWorkloadsReady_emptyIsNoop() throws Exception {
+        try (RancherClient client = new RancherClient(2000, 2000)) {
+            client.waitUntilManifestWorkloadsReady(base, "secret-token-value", "local", List.of(), 1000L, 10L);
+            client.waitUntilManifestWorkloadsReady(base, "secret-token-value", "local", null, 1000L, 10L);
+        }
+        assertEquals(0, podsGets.get());
+    }
+
+    @Test
+    public void waitUntilManifestWorkloadsReady_activeDeployment() throws Exception {
+        deploymentsBody.set(
+                "{\"metadata\":{\"state\":{\"name\":\"active\"}},"
+                        + "\"spec\":{\"replicas\":1},\"status\":{\"readyReplicas\":1}}");
+        List<ManifestWorkloads.Workload> workloads = ManifestWorkloads.parse(
+                "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: web\n  namespace: apps\n");
+        try (RancherClient client = new RancherClient(2000, 2000)) {
+            client.waitUntilManifestWorkloadsReady(
+                    base, "secret-token-value", "local", workloads, 1000L, 10L);
+        }
+        assertTrue(lastPath.get().contains("/apps.deployments/"));
+        assertEquals(0, podsGets.get());
+    }
+
+    @Test
+    public void waitUntilManifestWorkloadsReady_timeoutListsPods() {
+        deploymentsBody.set("{\"spec\":{\"replicas\":1},\"status\":{\"readyReplicas\":0}}");
+        podsBody.set(PODS_IMAGE_PULL);
+        List<ManifestWorkloads.Workload> workloads = ManifestWorkloads.parse(
+                "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: demo-nginx\n  namespace: default\n");
+        try (RancherClient client = new RancherClient(2000, 2000)) {
+            IOException e = assertThrows(
+                    IOException.class,
+                    () -> client.waitUntilManifestWorkloadsReady(
+                            base, "secret-token-value", "local", workloads, 40L, 10L));
+            assertTrue(e.getMessage().contains("did not become ready"));
+            assertTrue(e.getMessage().contains("Deployment default/demo-nginx"));
+            assertTrue(e.getMessage().contains("ImagePullBackOff"));
+        }
+        assertEquals(1, podsGets.get());
+    }
+
+    @Test
+    public void waitUntilManifestWorkloadsReady_unauthorizedRead() {
+        deploymentsCode.set(401);
+        List<ManifestWorkloads.Workload> workloads = ManifestWorkloads.parse(
+                "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: web\n  namespace: apps\n");
+        try (RancherClient client = new RancherClient(2000, 2000)) {
+            IOException e = assertThrows(
+                    IOException.class,
+                    () -> client.waitUntilManifestWorkloadsReady(
+                            base, "secret-token-value", "local", workloads, 1000L, 10L));
+            assertTrue(e.getMessage().contains("token cannot read this resource"));
+        }
     }
 
     @Test
@@ -723,9 +782,7 @@ public class RancherClientTest {
     @Test
     public void waitUntilHelmReleaseSettled_returnsWhenDeployedAndNoWorkloads() throws Exception {
         try (RancherClient client = new RancherClient(2000, 2000)) {
-            client.waitUntilHelmReleaseSettled(
-                    base, "secret-token-value", "local", "default", "demo-nginx",
-                    chartAction(), null, 1000L, 10L);
+            waitHelm(client, chartAction(), null, 1000L, 10L);
         }
         assertEquals(1, helmOperationGets.get());
         assertEquals(0, helmOperationLogGets.get());
@@ -739,9 +796,7 @@ public class RancherClientTest {
     public void waitUntilHelmReleaseSettled_activeDeploymentDoesNotListWorkloads() throws Exception {
         helmAppBody.set(helmAppJson("deployed", HELM_REL_ACTIVE));
         try (RancherClient client = new RancherClient(2000, 2000)) {
-            client.waitUntilHelmReleaseSettled(
-                    base, "secret-token-value", "local", "default", "demo-nginx",
-                    chartAction(), null, 1000L, 10L);
+            waitHelm(client, chartAction(), null, 1000L, 10L);
         }
         assertEquals(1, helmAppGets.get());
         assertEquals(0, podsGets.get());
@@ -754,9 +809,7 @@ public class RancherClientTest {
         try (RancherClient client = new RancherClient(2000, 2000)) {
             IOException e = assertThrows(
                     IOException.class,
-                    () -> client.waitUntilHelmReleaseSettled(
-                            base, "secret-token-value", "local", "default", "demo-nginx",
-                            chartAction(), null, 1000L, 10L));
+                    () -> waitHelm(client, chartAction(), null, 1000L, 10L));
             assertTrue(e.getMessage().contains("Helm app \"demo-nginx\" failed"));
             assertTrue(e.getMessage().contains("exit 123"));
             assertTrue(e.getMessage().contains("cluster serving"));
@@ -771,9 +824,7 @@ public class RancherClientTest {
         helmAppAfterFirst.set("{\"status\":{\"summary\":{\"state\":\"deployed\"}}}");
         JsonNode before = MAPPER.readTree(failed);
         try (RancherClient client = new RancherClient(2000, 2000)) {
-            client.waitUntilHelmReleaseSettled(
-                    base, "secret-token-value", "local", "default", "demo-nginx",
-                    chartAction(), before, 1000L, 10L);
+            waitHelm(client, chartAction(), before, 1000L, 10L);
         }
         assertTrue(helmAppGets.get() >= 2);
         assertEquals(0, podsGets.get());
@@ -785,9 +836,7 @@ public class RancherClientTest {
         try (RancherClient client = new RancherClient(2000, 2000)) {
             IOException e = assertThrows(
                     IOException.class,
-                    () -> client.waitUntilHelmReleaseSettled(
-                            base, "secret-token-value", "local", "default", "demo-nginx",
-                            chartAction(), null, 80L, 10L));
+                    () -> waitHelm(client, chartAction(), null, 400L, 10L));
             assertTrue(e.getMessage().contains("Helm app"));
             assertTrue(e.getMessage().contains("did not become ready"));
             assertTrue(e.getMessage().contains("state=transitioning"));
@@ -803,9 +852,7 @@ public class RancherClientTest {
         try (RancherClient client = new RancherClient(2000, 2000)) {
             IOException e = assertThrows(
                     IOException.class,
-                    () -> client.waitUntilHelmReleaseSettled(
-                            base, "secret-token-value", "local", "default", "demo-nginx",
-                            chartAction(), null, 80L, 10L));
+                    () -> waitHelm(client, chartAction(), null, 400L, 10L));
             assertTrue(e.getMessage().contains("did not become ready"));
             assertTrue(e.getMessage().contains("state=pending-upgrade"));
         }
@@ -820,9 +867,7 @@ public class RancherClientTest {
         try (RancherClient client = new RancherClient(2000, 2000)) {
             IOException e = assertThrows(
                     IOException.class,
-                    () -> client.waitUntilHelmReleaseSettled(
-                            base, "secret-token-value", "local", "default", "demo-nginx",
-                            chartAction(), null, 80L, 10L));
+                    () -> waitHelm(client, chartAction(), null, 80L, 10L));
             assertTrue(e.getMessage().contains("did not become ready"));
             assertTrue(e.getMessage().contains("state=pending-upgrade"));
             assertTrue(e.getMessage().contains("demo-nginx"));
@@ -839,9 +884,7 @@ public class RancherClientTest {
         try (RancherClient client = new RancherClient(2000, 2000)) {
             IOException e = assertThrows(
                     IOException.class,
-                    () -> client.waitUntilHelmReleaseSettled(
-                            base, "secret-token-value", "local", "default", "demo-nginx",
-                            chartAction(), null, 80L, 10L));
+                    () -> waitHelm(client, chartAction(), null, 80L, 10L));
             assertTrue(e.getMessage().contains("token cannot list pods"));
         }
         assertEquals(1, podsGets.get());
@@ -854,9 +897,7 @@ public class RancherClientTest {
         try (RancherClient client = new RancherClient(2000, 2000)) {
             IOException e = assertThrows(
                     IOException.class,
-                    () -> client.waitUntilHelmReleaseSettled(
-                            base, "secret-token-value", "local", "default", "demo-nginx",
-                            chartAction(), null, 80L, 10L));
+                    () -> waitHelm(client, chartAction(), null, 80L, 10L));
             assertTrue(e.getMessage().contains("workloads not ready"));
             assertTrue(e.getMessage().contains("demo-nginx"));
             assertTrue(e.getMessage().contains("ImagePullBackOff"));
@@ -871,9 +912,7 @@ public class RancherClientTest {
         try (RancherClient client = new RancherClient(2000, 2000)) {
             IOException e = assertThrows(
                     IOException.class,
-                    () -> client.waitUntilHelmReleaseSettled(
-                            base, "secret-token-value", "local", "default", "demo-nginx",
-                            chartAction(), null, 1000L, 10L));
+                    () -> waitHelm(client, chartAction(), null, 1000L, 10L));
             assertEquals(
                     "Cannot get Helm app \"demo-nginx\" in namespace \"default\": token cannot read catalog apps",
                     e.getMessage());
@@ -887,9 +926,7 @@ public class RancherClientTest {
         try (RancherClient client = new RancherClient(2000, 2000)) {
             IOException e = assertThrows(
                     IOException.class,
-                    () -> client.waitUntilHelmReleaseSettled(
-                            base, "secret-token-value", "local", "default", "demo-nginx",
-                            chartAction(), null, 1000L, 10L));
+                    () -> waitHelm(client, chartAction(), null, 1000L, 10L));
             assertTrue(e.getMessage().contains("Helm operation \"helm-operation-test\""));
             assertTrue(e.getMessage().contains("failed"));
             assertTrue(e.getMessage().contains("exit code: 123"));
@@ -918,9 +955,7 @@ public class RancherClientTest {
         try (RancherClient client = new RancherClient(2000, 2000)) {
             IOException e = assertThrows(
                     IOException.class,
-                    () -> client.waitUntilHelmReleaseSettled(
-                            base, "secret-token-value", "local", "default", "demo-nginx",
-                            chartAction(), null, 1000L, 10L));
+                    () -> waitHelm(client, chartAction(), null, 1000L, 10L));
             assertTrue(e.getMessage().contains("exit code: 123"));
             assertTrue(e.getMessage().contains("UPGRADE FAILED"));
             String builderError = RancherConnections.truncateMessage(
@@ -940,9 +975,7 @@ public class RancherClientTest {
         try (RancherClient client = new RancherClient(2000, 2000)) {
             IOException e = assertThrows(
                     IOException.class,
-                    () -> client.waitUntilHelmReleaseSettled(
-                            base, "secret-token-value", "local", "default", "demo-nginx",
-                            chartAction(), null, 1000L, 10L));
+                    () -> waitHelm(client, chartAction(), null, 1000L, 10L));
             assertTrue(e.getMessage().contains("exit code: 123"));
             assertTrue(e.getMessage().contains("helm job log was empty"));
             assertFalse(e.getMessage().contains("UPGRADE FAILED"));
@@ -958,9 +991,7 @@ public class RancherClientTest {
         try (RancherClient client = new RancherClient(2000, 2000)) {
             IOException e = assertThrows(
                     IOException.class,
-                    () -> client.waitUntilHelmReleaseSettled(
-                            base, "secret-token-value", "local", "default", "demo-nginx",
-                            chartAction(), null, 1000L, 10L));
+                    () -> waitHelm(client, chartAction(), null, 1000L, 10L));
             assertTrue(e.getMessage().contains("exit code: 123"));
             assertFalse(e.getMessage().contains("UPGRADE FAILED"));
             assertFalse(e.getMessage().contains("helm job log was empty"));
@@ -978,9 +1009,7 @@ public class RancherClientTest {
         try (RancherClient client = new RancherClient(2000, 2000)) {
             IOException e = assertThrows(
                     IOException.class,
-                    () -> client.waitUntilHelmReleaseSettled(
-                            base, "secret-token-value", "local", "default", "demo-nginx",
-                            chartAction(), null, 1000L, 10L));
+                    () -> waitHelm(client, chartAction(), null, 1000L, 10L));
             assertTrue(e.getMessage().contains("exit code: 123"));
             assertTrue(e.getMessage().contains("token cannot read operation logs"));
             assertFalse(e.getMessage().contains("UPGRADE FAILED"));
@@ -996,9 +1025,7 @@ public class RancherClientTest {
         try (RancherClient client = new RancherClient(2000, 2000)) {
             IOException e = assertThrows(
                     IOException.class,
-                    () -> client.waitUntilHelmReleaseSettled(
-                            base, "secret-token-value", "local", "default", "demo-nginx",
-                            chartAction(), null, 1000L, 10L));
+                    () -> waitHelm(client, chartAction(), null, 1000L, 10L));
             assertTrue(e.getMessage().contains("exit code: 123"));
             assertTrue(e.getMessage().contains("cannot read operation logs"));
             assertTrue(e.getMessage().contains("406"));
@@ -1014,9 +1041,7 @@ public class RancherClientTest {
         try (RancherClient client = new RancherClient(2000, 2000)) {
             IOException e = assertThrows(
                     IOException.class,
-                    () -> client.waitUntilHelmReleaseSettled(
-                            base, "secret-token-value", "local", "default", "demo-nginx",
-                            chartAction(), null, 80L, 10L));
+                    () -> waitHelm(client, chartAction(), null, 80L, 10L));
             assertTrue(e.getMessage().contains("Helm operation \"helm-operation-test\""));
             assertTrue(e.getMessage().contains("did not become ready"));
             assertTrue(e.getMessage().contains("state=in-progress"));
@@ -1035,9 +1060,7 @@ public class RancherClientTest {
         try (RancherClient client = new RancherClient(2000, 2000)) {
             IOException e = assertThrows(
                     IOException.class,
-                    () -> client.waitUntilHelmReleaseSettled(
-                            base, "secret-token-value", "local", "default", "demo-nginx",
-                            chartAction(), null, 80L, 10L));
+                    () -> waitHelm(client, chartAction(), null, 80L, 10L));
             assertTrue(e.getMessage().contains("did not become ready"));
             assertTrue(e.getMessage().contains("running operation"));
             assertTrue(e.getMessage().contains("helm job log was empty"));
@@ -1052,9 +1075,7 @@ public class RancherClientTest {
         helmAppCode.set(404);
         helmAppAfterFirst.set("{\"status\":{\"summary\":{\"state\":\"deployed\"}}}");
         try (RancherClient client = new RancherClient(2000, 2000)) {
-            client.waitUntilHelmReleaseSettled(
-                    base, "secret-token-value", "local", "default", "demo-nginx",
-                    chartAction(), null, 1000L, 10L);
+            waitHelm(client, chartAction(), null, 1000L, 10L);
         }
         assertEquals(1, helmOperationGets.get());
         assertEquals(0, helmOperationLogGets.get());
@@ -1066,9 +1087,7 @@ public class RancherClientTest {
         try (RancherClient client = new RancherClient(2000, 2000)) {
             IOException e = assertThrows(
                     IOException.class,
-                    () -> client.waitUntilHelmReleaseSettled(
-                            base, "secret-token-value", "local", "default", "demo-nginx",
-                            MAPPER.readTree("{}"), null, 1000L, 10L));
+                    () -> waitHelm(client, MAPPER.readTree("{}"), null, 1000L, 10L));
             assertTrue(e.getMessage().contains("missing operationName"));
         }
         assertEquals(0, helmOperationGets.get());
@@ -1083,9 +1102,7 @@ public class RancherClientTest {
         try (RancherClient client = new RancherClient(2000, 2000)) {
             IOException e = assertThrows(
                     IOException.class,
-                    () -> client.waitUntilHelmReleaseSettled(
-                            base, "secret-token-value", "local", "default", "demo-nginx",
-                            chartAction(), null, 1000L, 10L));
+                    () -> waitHelm(client, chartAction(), null, 1000L, 10L));
             assertEquals(
                     "Cannot get Helm operation \"helm-operation-test\" in namespace \"default\":"
                             + " token cannot read operations",
@@ -1136,6 +1153,18 @@ public class RancherClientTest {
 
     private static JsonNode chartAction() throws Exception {
         return MAPPER.readTree(CHART_ACTION_JSON);
+    }
+
+    private void waitHelm(
+            RancherClient client, JsonNode action, JsonNode before, long timeoutMs, long intervalMs)
+            throws IOException, InterruptedException {
+        client.waitUntilHelmReleaseSettled(
+                new RancherClient.ClusterAccess(base, "secret-token-value", "local"),
+                "default",
+                "demo-nginx",
+                action,
+                before,
+                new RancherClient.PollBudget(timeoutMs, intervalMs));
     }
 
     private static String helmAppJson(String state, String relationship) {

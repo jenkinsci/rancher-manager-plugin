@@ -136,6 +136,36 @@ public class RancherGlobalConfigurationTest {
         assertTrue(reloaded.isConfigured());
     }
 
+    @Test
+    public void clamp_formChecks_andProbeGuards(JenkinsRule jenkins) {
+        RancherGlobalConfiguration cfg = RancherGlobalConfiguration.get();
+        cfg.setName("  ");
+        assertEquals("default", cfg.getName());
+        cfg.setRancherUrl(null);
+        cfg.setCredentialsId("  ");
+        assertFalse(cfg.isConfigured());
+        cfg.setConnectTimeoutMs(0);
+        assertEquals(RancherGlobalConfiguration.DEFAULT_CONNECT_TIMEOUT_MS, cfg.getConnectTimeoutMs());
+        cfg.setReadTimeoutMs(500_000);
+        assertEquals(120_000, cfg.getReadTimeoutMs());
+
+        assertEquals(FormValidation.Kind.ERROR, cfg.doCheckRancherUrl("").kind);
+        assertEquals(FormValidation.Kind.OK, cfg.doCheckConnectTimeoutMs("").kind);
+        assertEquals(FormValidation.Kind.ERROR, cfg.doCheckConnectTimeoutMs("x").kind);
+        assertEquals(FormValidation.Kind.ERROR, cfg.doCheckConnectTimeoutMs("1").kind);
+        assertEquals(FormValidation.Kind.OK, cfg.doCheckConnectTimeoutMs("1000").kind);
+        assertEquals(FormValidation.Kind.OK, cfg.doCheckReadTimeoutMs("").kind);
+        assertEquals(FormValidation.Kind.ERROR, cfg.doCheckReadTimeoutMs("50").kind);
+
+        FormValidation noUrl = cfg.probeConnection(" ", "tok", 1000, 1000);
+        assertEquals(FormValidation.Kind.ERROR, noUrl.kind);
+        FormValidation badUrl = cfg.probeConnection("ftp://x", "tok", 1000, 1000);
+        assertEquals(FormValidation.Kind.ERROR, badUrl.kind);
+        FormValidation noCreds = cfg.probeConnection("https://rancher.example", " ", 1000, 1000);
+        assertEquals(FormValidation.Kind.ERROR, noCreds.kind);
+        assertFalse(cfg.doFillCredentialsIdItems("").isEmpty());
+    }
+
     private static void respond(HttpExchange exchange, int code, String body) throws IOException {
         byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
         exchange.getResponseHeaders().add("Content-Type", "application/json");

@@ -66,6 +66,25 @@ public class RancherCredentialsTest {
     }
 
     @Test
+    public void resolveApiToken_blankIdAndEmptySecret(JenkinsRule jenkins) throws Exception {
+        IllegalStateException blank = assertThrows(
+                IllegalStateException.class, () -> RancherCredentials.resolveApiToken("  ", null));
+        assertTrue(blank.getMessage().contains("Credentials ID is required"));
+
+        SystemCredentialsProvider.getInstance().getCredentials().add(
+                new StringCredentialsImpl(
+                        CredentialsScope.GLOBAL,
+                        "empty-token",
+                        "empty",
+                        Secret.fromString("   ")));
+        SystemCredentialsProvider.getInstance().save();
+        IllegalStateException empty = assertThrows(
+                IllegalStateException.class,
+                () -> RancherCredentials.resolveApiToken("empty-token", null));
+        assertTrue(empty.getMessage().contains("empty secret"));
+    }
+
+    @Test
     public void fillSecretText_systemRequiresManage(JenkinsRule jenkins) throws Exception {
         jenkins.jenkins.setSecurityRealm(jenkins.createDummySecurityRealm());
         jenkins.jenkins.setAuthorizationStrategy(

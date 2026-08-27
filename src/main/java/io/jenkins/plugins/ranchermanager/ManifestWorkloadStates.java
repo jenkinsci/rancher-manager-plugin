@@ -15,7 +15,7 @@ final class ManifestWorkloadStates {
     private ManifestWorkloadStates() {}
 
     static Progress classify(ManifestWorkloads.Kind kind, JsonNode resource) {
-        if (resource == null || resource.isNull() || resource.isMissingNode()) {
+        if (K8sJson.missing(resource)) {
             return Progress.WAITING;
         }
         if (steveActive(resource)) {
@@ -32,7 +32,7 @@ final class ManifestWorkloadStates {
     }
 
     static String displayState(ManifestWorkloads.Kind kind, JsonNode resource) {
-        if (resource == null || resource.isNull() || resource.isMissingNode()) {
+        if (K8sJson.missing(resource)) {
             return "missing";
         }
         String steve = steveStateName(resource);
@@ -43,11 +43,11 @@ final class ManifestWorkloadStates {
             case DEPLOYMENT, STATEFULSET ->
                     "ready=" + readyReplicas(resource) + "/" + desiredReplicas(resource);
             case DAEMONSET ->
-                    "ready=" + intPath(resource, "status", "numberReady")
+                    "ready=" + intStatus(resource, "numberReady")
                             + "/"
-                            + intPath(resource, "status", "desiredNumberScheduled");
+                            + intStatus(resource, "desiredNumberScheduled");
             case JOB ->
-                    "succeeded=" + intPath(resource, "status", "succeeded")
+                    "succeeded=" + intStatus(resource, "succeeded")
                             + "/"
                             + Math.max(1, intPath(resource, "spec", "completions"));
         };
@@ -58,25 +58,23 @@ final class ManifestWorkloadStates {
     }
 
     private static boolean steveErrorOrTransitioning(JsonNode resource) {
-        JsonNode state = resource.path("metadata").path("state");
-        if (state.path("transitioning").asBoolean(false)) {
-            return true;
-        }
-        if (state.path("error").asBoolean(false)) {
+        JsonNode state = K8sJson.metadataState(resource);
+        if (state.path(K8sJson.TRANSITIONING).asBoolean(false) || state.path(K8sJson.ERROR).asBoolean(false)) {
             return true;
         }
         String name = steveStateName(resource).toLowerCase(Locale.ROOT);
         return "updating".equals(name)
                 || "in-progress".equals(name)
                 || "pending".equals(name)
-                || "error".equals(name)
+                || K8sJson.ERROR.equals(name)
                 || "failed".equals(name);
     }
 
     private static String steveStateName(JsonNode resource) {
+        JsonNode state = K8sJson.metadataState(resource);
         return RancherClient.firstNonBlank(
-                RancherClient.text(resource.path("metadata").path("state"), "name"),
-                RancherClient.text(resource.path("metadata").path("state"), "message"));
+                RancherClient.text(state, K8sJson.NAME),
+                RancherClient.text(state, K8sJson.MESSAGE));
     }
 
     private static Progress replicasReady(JsonNode resource) {
@@ -88,25 +86,24 @@ final class ManifestWorkloadStates {
     }
 
     private static Progress daemonSetReady(JsonNode resource) {
-        int desired = intPath(resource, "status", "desiredNumberScheduled");
+        int desired = intStatus(resource, "desiredNumberScheduled");
         if (desired <= 0) {
             return Progress.WAITING;
         }
-        int ready = intPath(resource, "status", "numberReady");
-        return ready >= desired ? Progress.READY : Progress.WAITING;
+        return intStatus(resource, "numberReady") >= desired ? Progress.READY : Progress.WAITING;
     }
 
     private static Progress jobReady(JsonNode resource) {
         int completions = Math.max(1, intPath(resource, "spec", "completions"));
-        int succeeded = intPath(resource, "status", "succeeded");
+        int succeeded = intStatus(resource, "succeeded");
         if (succeeded >= completions) {
             return Progress.READY;
         }
-        JsonNode conditions = resource.path("status").path("conditions");
+        JsonNode conditions = K8sJson.statusNode(resource).path("conditions");
         if (conditions.isArray()) {
             for (JsonNode c : conditions) {
                 if ("Failed".equalsIgnoreCase(RancherClient.text(c, "type"))
-                        && "True".equalsIgnoreCase(RancherClient.text(c, "status"))) {
+                        && "True".equalsIgnoreCase(RancherClient.text(c, K8sJson.STATUS))) {
                     return Progress.WAITING;
                 }
             }
@@ -120,11 +117,15 @@ final class ManifestWorkloadStates {
     }
 
     private static int readyReplicas(JsonNode resource) {
-        int ready = intPath(resource, "status", "readyReplicas");
+        int ready = intStatus(resource, "readyReplicas");
         if (ready > 0) {
             return ready;
         }
-        return intPath(resource, "status", "availableReplicas");
+        return intStatus(resource, "availableReplicas");
+    }
+
+    private static int intStatus(JsonNode root, String field) {
+        return intPath(root, K8sJson.STATUS, field);
     }
 
     private static int intPath(JsonNode root, String a, String b) {

@@ -92,6 +92,36 @@ public class HelmAppStatesTest {
     }
 
     @Test
+    void pollIntervalMs_propertyAndFallback() {
+        String previous = System.getProperty(HelmAppStates.POLL_INTERVAL_MS_PROP);
+        try {
+            System.clearProperty(HelmAppStates.POLL_INTERVAL_MS_PROP);
+            assertEquals(HelmAppStates.DEFAULT_POLL_INTERVAL_MS, HelmAppStates.pollIntervalMs());
+            System.setProperty(HelmAppStates.POLL_INTERVAL_MS_PROP, "  ");
+            assertEquals(HelmAppStates.DEFAULT_POLL_INTERVAL_MS, HelmAppStates.pollIntervalMs());
+            System.setProperty(HelmAppStates.POLL_INTERVAL_MS_PROP, "0");
+            assertEquals(1L, HelmAppStates.pollIntervalMs());
+            System.setProperty(HelmAppStates.POLL_INTERVAL_MS_PROP, "15");
+            assertEquals(15L, HelmAppStates.pollIntervalMs());
+            System.setProperty(HelmAppStates.POLL_INTERVAL_MS_PROP, "nope");
+            assertEquals(HelmAppStates.DEFAULT_POLL_INTERVAL_MS, HelmAppStates.pollIntervalMs());
+        } finally {
+            if (previous == null) {
+                System.clearProperty(HelmAppStates.POLL_INTERVAL_MS_PROP);
+            } else {
+                System.setProperty(HelmAppStates.POLL_INTERVAL_MS_PROP, previous);
+            }
+        }
+    }
+
+    @Test
+    void displayState_unknownWhenBlank() throws Exception {
+        assertEquals("unknown", HelmAppStates.displayState(MAPPER.readTree("{\"status\":{}}")));
+        assertEquals("", HelmAppStates.failureDetail(null));
+        assertTrue(HelmAppStates.thisOperation(null, null));
+    }
+
+    @Test
     public void parseTimeout_rejectsZeroAndNonNumber() {
         assertThrows(IllegalArgumentException.class, () -> HelmAppStates.parseTimeoutSeconds("0"));
         assertThrows(IllegalArgumentException.class, () -> HelmAppStates.parseTimeoutSeconds("-1"));

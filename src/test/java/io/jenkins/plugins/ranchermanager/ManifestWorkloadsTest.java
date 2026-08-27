@@ -38,4 +38,55 @@ class ManifestWorkloadsTest {
                 ManifestWorkloadStates.Progress.WAITING,
                 ManifestWorkloadStates.classify(ManifestWorkloads.Kind.DEPLOYMENT, null));
     }
+
+    @Test
+    void parse_kindsAndSkips() {
+        List<ManifestWorkloads.Workload> workloads = ManifestWorkloads.parse(
+                """
+                apiVersion: apps/v1
+                kind: StatefulSet
+                metadata:
+                  name: db
+                  namespace: data
+                ---
+                kind: DaemonSet
+                metadata:
+                  name: agent
+                ---
+                kind: Job
+                metadata:
+                  name: migrate
+                ---
+                kind: Deployment
+                metadata:
+                  name: ""
+                ---
+                - not-a-map
+                ---
+                kind: Service
+                metadata:
+                  name: svc
+                ---
+                kind: Deployment
+                metadata: not-a-map
+                """);
+        assertEquals(3, workloads.size());
+        assertEquals("apps.statefulsets/data/db", workloads.get(0).stevePath());
+        assertEquals("DaemonSet default/agent", workloads.get(1).display());
+        assertEquals(ManifestWorkloads.Kind.JOB, workloads.get(2).kind());
+        assertTrue(ManifestWorkloads.parse(null).isEmpty());
+        assertTrue(ManifestWorkloads.parse("  ").isEmpty());
+        assertTrue(ManifestWorkloads.namespaces(null).isEmpty());
+        assertTrue(ManifestWorkloads.namespaces(List.of()).isEmpty());
+        assertEquals(ManifestWorkloads.Kind.DEPLOYMENT, ManifestWorkloads.Kind.of("deployment"));
+        assertEquals(null, ManifestWorkloads.Kind.of(" "));
+        assertEquals(null, ManifestWorkloads.Kind.of("Secret"));
+    }
+
+    @Test
+    void parse_invalidYamlThrows() {
+        IllegalArgumentException ex = org.junit.jupiter.api.Assertions.assertThrows(
+                IllegalArgumentException.class, () -> ManifestWorkloads.parse("foo: [unterminated"));
+        assertTrue(ex.getMessage().contains("Cannot parse manifest YAML"));
+    }
 }
