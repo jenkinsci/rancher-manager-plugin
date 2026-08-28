@@ -3,8 +3,8 @@ package io.jenkins.plugins.ranchermanager;
 import hudson.AbortException;
 
 /**
- * Step already wrote {@code [ERROR]} and closed its log banner. Freestyle catches this and returns
- * false so Jenkins does not print a second {@code ERROR:} line. Pipeline still fails the step.
+ * Step already wrote {@code [ERROR]} and closed its log banner. Distinct from a raw
+ * {@link AbortException} so {@code abort()} does not wrap the same failure twice.
  */
 final class RancherLoggedAbort extends AbortException {
 

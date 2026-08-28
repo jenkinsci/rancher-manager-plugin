@@ -44,8 +44,9 @@ jobs:
       - name: Build, test, coverage, and analyze
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-        # Must run tests + -Pcoverage so jacoco.xml exists; -DskipTests yields 0% Coverage on New Code.
+        # Must run tests + -Penable-jacoco so jacoco.xml exists; -DskipTests yields 0% Coverage on New Code.
         # organization / projectKey / host.url / jacoco path come from pom.xml <sonar.*> properties.
+        # JaCoCo version and report formats come from the plugin parent (xml + html + csv).
         run: >
-          mvn -B -Pcoverage verify
+          mvn -B -Penable-jacoco verify
           org.sonarsource.scanner.maven:sonar-maven-plugin:sonar

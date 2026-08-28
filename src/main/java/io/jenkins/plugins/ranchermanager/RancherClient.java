@@ -117,7 +117,11 @@ final class RancherClient implements AutoCloseable {
         return body;
     }
 
-    record ClusterAccess(String baseUrl, String apiToken, String clusterId) {}
+    /** Ephemeral HTTP session; jobs persist credentialsId, not this token. */
+    record ClusterAccess(
+            String baseUrl,
+            @SuppressWarnings("lgtm[jenkins/plaintext-storage]") String apiToken,
+            String clusterId) {}
 
     record PollBudget(long timeoutMs, long intervalMs) {
         long timeout() {

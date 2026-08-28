@@ -6,9 +6,7 @@ import hudson.EnvVars;
 import hudson.Extension;
 import hudson.FilePath;
 import hudson.Launcher;
-import hudson.model.AbstractBuild;
 import hudson.model.AbstractProject;
-import hudson.model.BuildListener;
 import com.fasterxml.jackson.databind.JsonNode;
 import hudson.model.Item;
 import hudson.model.Run;
@@ -280,12 +278,6 @@ public class RancherHelmBuilder extends Builder implements SimpleBuildStep {
     @Override
     public boolean requiresWorkspace() {
         return HelmValuesSource.isRepository(getValuesSource());
-    }
-
-    @Override
-    public boolean perform(AbstractBuild<?, ?> build, Launcher launcher, BuildListener listener)
-            throws InterruptedException, IOException {
-        return RancherSteps.performFreestyle(build, launcher, listener, this);
     }
 
     @Override
