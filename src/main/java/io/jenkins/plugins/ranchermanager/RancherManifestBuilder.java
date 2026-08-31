@@ -211,9 +211,10 @@ public class RancherManifestBuilder extends Builder implements SimpleBuildStep {
     public void perform(
             @NonNull Run<?, ?> run,
             @NonNull FilePath workspace,
+            @NonNull EnvVars env,
             @NonNull Launcher launcher,
             @NonNull TaskListener listener) throws InterruptedException, IOException {
-        performManifest(run, run.getEnvironment(listener), workspace, launcher, listener);
+        performManifest(run, env, workspace, launcher, listener);
     }
 
     private void performManifest(
