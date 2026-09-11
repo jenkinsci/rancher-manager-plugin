@@ -1,7 +1,7 @@
 <?jelly escape-by-default='true'?>
 <div>
   Connect Jenkins to Rancher Manager via the Rancher API (Bearer token).
-  Global configuration under Manage Jenkins → System (<b>Rancher Manager</b>);
+  Global configuration under Manage Jenkins → System (<b>Rancher Manager</b>).
   Freestyle/Pipeline steps: <b>Rancher Manifest Deployment</b> (<code>rancherManifest</code>)
   and <b>Rancher Helm Deployment</b> (<code>rancherHelm</code>).
 </div>
