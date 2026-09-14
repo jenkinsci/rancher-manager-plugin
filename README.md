@@ -1,6 +1,6 @@
 # Rancher Manager
 
-[![Quality gate status](https://sonarcloud.io/api/project_badges/measure?project=rancher-manager-plugin&metric=alert_status&token=0dc3e186c95fc361a7e4a4dbd7c0eb8c16d790c3)](https://sonarcloud.io/summary/new_code?id=rancher-manager-plugin)
+[![Quality gate status](https://sonarcloud.io/api/project_badges/measure?project=mlinops_rancher-manager-plugin&metric=alert_status&token=f9cf4e11fb32834a76f61645db39e0fc13c42d13)](https://sonarcloud.io/summary/new_code?id=mlinops_rancher-manager-plugin)
 
 Deploy **Kubernetes manifests** and **Helm charts** from Jenkins through the [Rancher Manager](https://www.rancher.com/) 2.x API — one Bearer token, Freestyle or Pipeline, clear build summaries.
 
