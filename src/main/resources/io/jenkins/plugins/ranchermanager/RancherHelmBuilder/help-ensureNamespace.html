@@ -1,8 +1,6 @@
 <div>
-  <p>When enabled, create the namespace in the selected Project if it does not exist.
-     On a newly created namespace, the step also applies a default
-     ResourceQuota (<code>namespace-quota</code>) and
-     LimitRange (<code>namespace-limits</code>) to cap pods and CPU/memory.</p>
+  <p>When enabled, create the namespace in the selected Project if it does not exist
+    (project annotation and label on the Namespace). The step does not create ResourceQuota or LimitRange.</p>
   <p>When disabled, the namespace must already exist in that project.
      Existing namespaces are never moved or patched.
      Skipped when Validate only is checked.</p>

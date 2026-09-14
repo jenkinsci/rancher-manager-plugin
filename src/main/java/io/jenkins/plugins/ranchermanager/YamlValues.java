@@ -2,12 +2,14 @@ package io.jenkins.plugins.ranchermanager;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.yaml.snakeyaml.LoaderOptions;
 import org.yaml.snakeyaml.Yaml;
 import org.yaml.snakeyaml.constructor.SafeConstructor;
 import org.yaml.snakeyaml.error.YAMLException;
 
 import java.util.Collections;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -53,5 +55,36 @@ final class YamlValues {
 
     static JsonNode toJsonNode(String yamlContent) {
         return MAPPER.valueToTree(parseToMap(yamlContent));
+    }
+
+    /**
+     * Deep-merge Helm values maps. Overlay wins on the same key (Helm {@code -f overlay} semantics):
+     * nested mappings recurse; scalars and lists replace the base value entirely.
+     * Null overlay → base; null base → overlay.
+     */
+    static JsonNode merge(JsonNode base, JsonNode overlay) {
+        if (overlay == null || overlay.isNull()) {
+            return base;
+        }
+        if (base == null || base.isNull()) {
+            return overlay;
+        }
+        if (!base.isObject() || !overlay.isObject()) {
+            return overlay;
+        }
+        ObjectNode out = ((ObjectNode) base).deepCopy();
+        Iterator<Map.Entry<String, JsonNode>> fields = overlay.fields();
+        while (fields.hasNext()) {
+            Map.Entry<String, JsonNode> e = fields.next();
+            String key = e.getKey();
+            JsonNode ov = e.getValue();
+            JsonNode cur = out.get(key);
+            if (cur != null && cur.isObject() && ov != null && ov.isObject()) {
+                out.set(key, merge(cur, ov));
+            } else {
+                out.set(key, ov == null ? null : ov.deepCopy());
+            }
+        }
+        return out;
     }
 }

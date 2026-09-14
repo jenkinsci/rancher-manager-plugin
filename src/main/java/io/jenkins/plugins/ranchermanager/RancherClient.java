@@ -37,8 +37,6 @@ final class RancherClient implements AutoCloseable {
     private static final String HTTP_STATUS_PREFIX = "HTTP ";
     private static final String K8S_CLUSTER_PREFIX = "/k8s/clusters/";
     private static final String APPLY_RESOURCE = "/v1/management.cattle.io.clusters/local?action=apply";
-    static final String RESOURCE_QUOTA_NAME = "namespace-quota";
-    static final String LIMIT_RANGE_NAME = "namespace-limits";
     static final String PROJECT_ID_FIELD = "field.cattle.io/projectId";
     static final int MAX_ERROR_DETAIL_CHARS = 4000;
 
@@ -337,7 +335,6 @@ final class RancherClient implements AutoCloseable {
         String createUrl = clusterK8sPath(baseUrl, cluster) + "/v1/namespaces";
         try {
             httpJson("POST", createUrl, apiToken, body, "create namespace");
-            applyNamespaceResourceLimits(baseUrl, apiToken, cluster, ns);
             return "created";
         } catch (IOException createEx) {
             if (!isHttpStatus(createEx, 409)) {
@@ -360,71 +357,6 @@ final class RancherClient implements AutoCloseable {
         metadata.put(K8sJson.NAME, namespace);
         metadata.putObject(K8sJson.ANNOTATIONS).put(PROJECT_ID_FIELD, project.catalogId());
         metadata.putObject("labels").put(PROJECT_ID_FIELD, project.projectId());
-        return body;
-    }
-
-    private void applyNamespaceResourceLimits(
-            String baseUrl, String apiToken, String clusterId, String namespace) throws IOException {
-        String encoded = encodePathSegment(namespace);
-        String nsBase = clusterK8sPath(baseUrl, clusterId) + "/v1/namespaces/" + encoded;
-        createNamespacedResourceIfAbsent(
-                nsBase + "/resourcequotas",
-                apiToken,
-                buildResourceQuotaBody(namespace),
-                namespace,
-                "create resource quota");
-        createNamespacedResourceIfAbsent(
-                nsBase + "/limitranges",
-                apiToken,
-                buildLimitRangeBody(namespace),
-                namespace,
-                "create limit range");
-    }
-
-    private void createNamespacedResourceIfAbsent(
-            String url, String apiToken, ObjectNode body, String namespace, String debugNote)
-            throws IOException {
-        try {
-            httpJson("POST", url, apiToken, body, debugNote);
-        } catch (IOException e) {
-            if (isHttpStatus(e, 409)) {
-                return;
-            }
-            throw mapEnsureNamespaceError(e, namespace);
-        }
-    }
-
-    static ObjectNode buildResourceQuotaBody(String namespace) {
-        ObjectNode body = MAPPER.createObjectNode();
-        body.put(K8sJson.API_VERSION, "v1");
-        body.put("kind", "ResourceQuota");
-        ObjectNode metadata = body.putObject(K8sJson.METADATA);
-        metadata.put(K8sJson.NAME, RESOURCE_QUOTA_NAME);
-        metadata.put(K8sJson.NAMESPACE, namespace);
-        ObjectNode hard = body.putObject("spec").putObject("hard");
-        hard.put("pods", "10");
-        hard.put("requests.cpu", "2");
-        hard.put("requests.memory", "4Gi");
-        hard.put("limits.cpu", "4");
-        hard.put("limits.memory", "8Gi");
-        return body;
-    }
-
-    static ObjectNode buildLimitRangeBody(String namespace) {
-        ObjectNode body = MAPPER.createObjectNode();
-        body.put(K8sJson.API_VERSION, "v1");
-        body.put("kind", "LimitRange");
-        ObjectNode metadata = body.putObject(K8sJson.METADATA);
-        metadata.put(K8sJson.NAME, LIMIT_RANGE_NAME);
-        metadata.put(K8sJson.NAMESPACE, namespace);
-        ObjectNode container = body.putObject("spec").putArray("limits").addObject();
-        container.put("type", "Container");
-        ObjectNode defaults = container.putObject("default");
-        defaults.put("cpu", "500m");
-        defaults.put("memory", "512Mi");
-        ObjectNode defaultRequest = container.putObject("defaultRequest");
-        defaultRequest.put("cpu", "100m");
-        defaultRequest.put("memory", "128Mi");
         return body;
     }
 
@@ -1131,7 +1063,10 @@ final class RancherClient implements AutoCloseable {
             String projectId,
             String version,
             JsonNode values,
-            boolean atomic) {}
+            boolean helmWait,
+            String helmTimeout,
+            boolean atomic,
+            boolean cleanupOnFail) {}
 
     private JsonNode postHelmAction(
             String baseUrl,
@@ -1196,9 +1131,17 @@ final class RancherClient implements AutoCloseable {
             throw new IllegalArgumentException("Project is required for Helm catalog install.");
         }
         body.put("projectId", request.projectId.trim());
-        if (request.atomic) {
+        if (request.helmWait) {
             body.put("wait", true);
+            if (request.helmTimeout != null && !request.helmTimeout.isBlank()) {
+                body.put("timeout", request.helmTimeout.trim());
+            }
+        }
+        if (request.cleanupOnFail) {
             body.put("cleanupOnFail", true);
+        }
+        if (request.atomic) {
+            body.put("atomic", true);
         }
         if (upgrade) {
             body.put("install", true);

@@ -55,4 +55,38 @@ class YamlValuesTest {
         JsonNode node = YamlValues.toJsonNode("replicaCount: 1\n");
         assertEquals(1, node.path("replicaCount").asInt());
     }
+
+    @Test
+    void merge_overlayWinsNestedKey_keepsBaseSiblings() {
+        JsonNode base = YamlValues.toJsonNode(
+                "replicaCount: 2\nimage:\n  repository: nginx\n  tag: old\n");
+        JsonNode overlay = YamlValues.toJsonNode("image:\n  tag: new\n");
+        JsonNode merged = YamlValues.merge(base, overlay);
+        assertEquals(2, merged.path("replicaCount").asInt());
+        assertEquals("nginx", merged.path("image").path("repository").asText());
+        assertEquals("new", merged.path("image").path("tag").asText());
+    }
+
+    @Test
+    void merge_emptyOverlay_returnsBase() {
+        JsonNode base = YamlValues.toJsonNode("replicaCount: 1\n");
+        assertEquals(base, YamlValues.merge(base, null));
+        assertEquals(1, YamlValues.merge(base, null).path("replicaCount").asInt());
+    }
+
+    @Test
+    void merge_nullBase_returnsOverlay() {
+        JsonNode overlay = YamlValues.toJsonNode("image:\n  tag: v1\n");
+        JsonNode merged = YamlValues.merge(null, overlay);
+        assertEquals("v1", merged.path("image").path("tag").asText());
+    }
+
+    @Test
+    void merge_listReplacesEntirely() {
+        JsonNode base = YamlValues.toJsonNode("args:\n  - a\n  - b\n");
+        JsonNode overlay = YamlValues.toJsonNode("args:\n  - c\n");
+        JsonNode merged = YamlValues.merge(base, overlay);
+        assertEquals(1, merged.path("args").size());
+        assertEquals("c", merged.path("args").get(0).asText());
+    }
 }

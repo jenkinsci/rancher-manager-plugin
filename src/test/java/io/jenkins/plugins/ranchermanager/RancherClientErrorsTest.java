@@ -127,7 +127,7 @@ class RancherClientErrorsTest {
     @Test
     void mapMissingChartVersion_blankVersion() {
         RancherClient.HelmChartRequest request = new RancherClient.HelmChartRequest(
-                "charts", "rel", "nginx", "default", "local:p", null, null, false);
+                "charts", "rel", "nginx", "default", "local:p", null, null, false, null, false, false);
         IOException miss = new IOException("HTTP 500 - no chart version found for nginx");
         String msg = RancherClient.mapMissingChartVersion(miss, "charts", request).getMessage();
         assertTrue(msg.contains("has no chart \"nginx\""));

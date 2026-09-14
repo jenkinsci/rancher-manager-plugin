@@ -147,13 +147,9 @@ final class RancherConnections {
         if (body.isEmpty()) {
             body = "failed";
         }
-        if (log != null && !log.hasLoggedError()) {
-            if (thrown != null) {
-                log.errorJul(body, thrown);
-                log.error(body);
-            } else {
-                log.error(body);
-            }
+        // Do not write [ERROR] to the build console — Jenkins/Pipeline already prints AbortException once.
+        if (log != null && thrown != null) {
+            log.errorJul(body, thrown);
         }
         return new RancherLoggedAbort(body);
     }

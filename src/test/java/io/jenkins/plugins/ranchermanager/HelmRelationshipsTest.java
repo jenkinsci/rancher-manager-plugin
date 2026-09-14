@@ -68,6 +68,55 @@ public class HelmRelationshipsTest {
     }
 
     @Test
+    public void metadataRelationships_liveShape_boardAndGate() throws Exception {
+        String depActive = "{\"toId\":\"mnp/mnp-backend\",\"toType\":\"apps.deployment\","
+                + "\"rel\":\"helmresource\",\"state\":\"active\","
+                + "\"message\":\"Deployment is available. Replicas: 1\"}";
+        String svc = "{\"toId\":\"mnp/mnp-backend\",\"toType\":\"service\","
+                + "\"rel\":\"helmresource\",\"state\":\"active\",\"message\":\"Service is ready\"}";
+        String cm = "{\"toId\":\"mnp/mnp-frontend-config\",\"toType\":\"configmap\","
+                + "\"rel\":\"helmresource\",\"state\":\"active\",\"message\":\"Resource is always ready\"}";
+        String secret = "{\"toId\":\"mnp/sh.helm.release.v1.mnp.v86\",\"toType\":\"secret\","
+                + "\"rel\":\"helmresource\",\"state\":\"active\"}";
+        JsonNode app = MAPPER.readTree(
+                "{\"status\":{\"summary\":{\"state\":\"deployed\"}},"
+                        + "\"metadata\":{\"name\":\"mnp\",\"relationships\":["
+                        + cm + "," + svc + "," + depActive + "," + secret + "]}}");
+        assertEquals(HelmRelationships.Gate.PASSED, HelmRelationships.gate(app));
+        List<String> board = HelmRelationships.boardLines(app);
+        assertEquals(3, board.size());
+        assertTrue(board.stream().anyMatch(l -> l.contains("Helm deployment mnp-backend: active")));
+        assertTrue(board.stream().anyMatch(l -> l.contains("Helm service mnp-backend: active")));
+        assertTrue(board.stream().anyMatch(l -> l.contains("Helm configmap mnp-frontend-config: active")));
+    }
+
+    @Test
+    public void metadataRelationships_updatingDeployment_notReady() throws Exception {
+        JsonNode app = MAPPER.readTree(
+                "{\"status\":{\"summary\":{\"state\":\"deployed\"}},"
+                        + "\"metadata\":{\"relationships\":["
+                        + "{\"toId\":\"mnp/mnp-frontend\",\"toType\":\"apps.deployment\","
+                        + "\"rel\":\"helmresource\",\"state\":\"updating\","
+                        + "\"message\":\"Deployment does not have minimum availability\"}"
+                        + "]}}");
+        assertEquals(HelmRelationships.Gate.NOT_READY, HelmRelationships.gate(app));
+        assertTrue(HelmRelationships.inactiveWorkloads(app).contains("mnp-frontend"));
+        assertTrue(HelmRelationships.inactiveWorkloads(app).contains("minimum availability"));
+    }
+
+    @Test
+    public void metadataPreferredOverEmptyRoot() throws Exception {
+        JsonNode app = MAPPER.readTree(
+                "{\"relationships\":[],"
+                        + "\"metadata\":{\"relationships\":["
+                        + deployment("active", "ok")
+                        + "]},"
+                        + "\"status\":{\"summary\":{\"state\":\"deployed\"}}}");
+        assertEquals(HelmRelationships.Gate.PASSED, HelmRelationships.gate(app));
+        assertEquals(1, HelmRelationships.boardLines(app).size());
+    }
+
+    @Test
     public void fingerprint_joinsLines() {
         assertEquals("", HelmRelationships.fingerprint(List.of()));
         assertEquals("", HelmRelationships.fingerprint(null));

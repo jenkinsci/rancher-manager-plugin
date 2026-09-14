@@ -38,7 +38,9 @@ pipeline {
                     project: 'Default',
                     namespace: 'default',
                     waitTimeoutSeconds: '300',
-                    atomic: true
+                    helmWait: true,
+                    helmTimeoutSeconds: '300',
+                    cleanupOnFail: true
                 )
             }
         }
@@ -55,7 +57,34 @@ pipeline {
                     values: '''
 replicaCount: 1
 ''',
-                    atomic: true
+                    helmWait: true,
+                    helmTimeoutSeconds: '300',
+                    atomic: true,
+                    cleanupOnFail: true
+                )
+            }
+        }
+        stage('Upgrade with values overlay (set image)') {
+            steps {
+                rancherHelm(
+                    clusterId: 'local',
+                    releaseName: 'mnp',
+                    chart: 'mnp',
+                    repo: 'https://charts.example/helm',
+                    project: 'Default',
+                    version: '0.1.6',
+                    namespace: 'mnp',
+                    valuesSource: 'repository',
+                    valuesRepositoryUrl: 'https://gitlab.example/group/helm-values.git',
+                    valuesFilePath: 'mnp/values.yaml',
+                    valuesOverlay: '''
+backend:
+  image:
+    tag: "v11-dev-abc"
+frontend:
+  image:
+    tag: "v11-dev-def"
+'''
                 )
             }
         }

@@ -25,6 +25,9 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @WithJenkins
@@ -64,6 +67,7 @@ public class RancherHelmBuilderTest {
     private final AtomicInteger uninstallCalls = new AtomicInteger();
     private final AtomicBoolean projectsCalled = new AtomicBoolean();
     private final AtomicBoolean nsPosted = new AtomicBoolean();
+    private final AtomicInteger nsQuotaPosts = new AtomicInteger();
     private final AtomicBoolean refreshCalled = new AtomicBoolean();
     private final AtomicInteger refreshCode = new AtomicInteger(200);
     private final AtomicReference<String> clusterRepoPutBody = new AtomicReference<>();
@@ -77,6 +81,7 @@ public class RancherHelmBuilderTest {
     private final AtomicReference<String> clusterReposListBody = new AtomicReference<>();
     private final AtomicBoolean releaseExists = new AtomicBoolean(false);
     private final AtomicInteger namespaceGetCode = new AtomicInteger(200);
+    private final AtomicInteger namespacePostCode = new AtomicInteger(201);
     private final AtomicReference<String> namespaceGetBody = new AtomicReference<>(NS_IN_PROJECT);
     private final AtomicInteger helmAppGets = new AtomicInteger();
     private final AtomicInteger helmAppPollGets = new AtomicInteger();
@@ -98,12 +103,17 @@ public class RancherHelmBuilderTest {
 
     private static final String APP_EXISTS_NAME_ONLY =
             "{\"metadata\":{\"name\":\"demo-nginx\"}}";
+    private static final String REL_DEPLOYMENT_ACTIVE =
+            "{\"toId\":\"default/demo-nginx\",\"toType\":\"apps.deployment\","
+                    + "\"rel\":\"helmresource\",\"state\":\"active\","
+                    + "\"message\":\"Deployment is available. Replicas: 1\"}";
     private static final String REL_DEPLOYMENT_UPDATING =
             "{\"toId\":\"default/demo-nginx\",\"toType\":\"apps.deployment\","
                     + "\"rel\":\"helmresource\",\"state\":\"updating\","
                     + "\"message\":\"Deployment does not have minimum availability\"}";
     private static final String APP_DEPLOYED =
-            "{\"metadata\":{\"name\":\"demo-nginx\"},\"status\":{\"summary\":{\"state\":\"deployed\"}}}";
+            "{\"metadata\":{\"name\":\"demo-nginx\",\"relationships\":[" + REL_DEPLOYMENT_ACTIVE + "]},"
+                    + "\"status\":{\"summary\":{\"state\":\"deployed\"}}}";
     private static final String APP_TRANSITIONING =
             "{\"metadata\":{\"name\":\"demo-nginx\"},\"status\":{\"summary\":{\"state\":\"transitioning\"}}}";
     private static final String APP_FAILED =
@@ -113,8 +123,8 @@ public class RancherHelmBuilderTest {
             "{\"metadata\":{\"name\":\"demo-nginx\"},\"status\":{\"summary\":{\"state\":\"pending-upgrade\"}},"
                     + "\"relationships\":[" + REL_DEPLOYMENT_UPDATING + "]}";
     private static final String APP_DEPLOYED_WORKLOAD_NOT_READY =
-            "{\"metadata\":{\"name\":\"demo-nginx\"},\"status\":{\"summary\":{\"state\":\"deployed\"}},"
-                    + "\"relationships\":[" + REL_DEPLOYMENT_UPDATING + "]}";
+            "{\"metadata\":{\"name\":\"demo-nginx\",\"relationships\":[" + REL_DEPLOYMENT_UPDATING + "]},"
+                    + "\"status\":{\"summary\":{\"state\":\"deployed\"}}}";
     private static final String APP_FAILED_WORKLOAD_NOT_READY =
             "{\"metadata\":{\"name\":\"demo-nginx\"},\"status\":{\"summary\":{\"state\":\"failed\",\"message\":\"exit 123\"}},"
                     + "\"relationships\":[" + REL_DEPLOYMENT_UPDATING + "]}";
@@ -146,6 +156,7 @@ public class RancherHelmBuilderTest {
         uninstallCalls.set(0);
         projectsCalled.set(false);
         nsPosted.set(false);
+        nsQuotaPosts.set(0);
         refreshCalled.set(false);
         refreshCode.set(200);
         clusterRepoPutBody.set(null);
@@ -161,6 +172,7 @@ public class RancherHelmBuilderTest {
         lastPath.set(null);
         lastMethod.set(null);
         namespaceGetCode.set(200);
+        namespacePostCode.set(201);
         namespaceGetBody.set(NS_IN_PROJECT);
         helmAppGets.set(0);
         helmAppPollGets.set(0);
@@ -326,7 +338,12 @@ public class RancherHelmBuilderTest {
             if ("POST".equalsIgnoreCase(exchange.getRequestMethod()) && path.endsWith("/v1/namespaces")) {
                 nsPosted.set(true);
                 lastNsCreateBody.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
-                respond(exchange, 201, "{\"metadata\":{\"name\":\"default\"}}");
+                int code = namespacePostCode.get();
+                if (code >= 200 && code < 300) {
+                    respond(exchange, code, "{\"metadata\":{\"name\":\"default\"}}");
+                } else {
+                    respond(exchange, code, "{\"message\":\"Method POST not supported\"}");
+                }
                 return;
             }
             if (path.contains("/v1/namespaces/") && "GET".equalsIgnoreCase(exchange.getRequestMethod())) {
@@ -335,6 +352,7 @@ public class RancherHelmBuilderTest {
                 return;
             }
             if (path.contains("/resourcequotas") || path.contains("/limitranges")) {
+                nsQuotaPosts.incrementAndGet();
                 respond(exchange, 201, "{}");
                 return;
             }
@@ -368,6 +386,7 @@ public class RancherHelmBuilderTest {
         assertEquals("mnp", loaded.getProject());
         assertEquals(RancherHelmBuilder.MODE_INHERIT, loaded.getRancherConnectionMode());
         assertEquals(RancherHelmBuilder.VALUES_NONE, loaded.getValuesSource());
+        assertNull(loaded.getValuesOverlay());
     }
 
     @Test
@@ -399,6 +418,38 @@ public class RancherHelmBuilderTest {
     }
 
     @Test
+    public void configRoundtrip_valuesOverlay(JenkinsRule jenkins) throws Exception {
+        FreeStyleProject project = jenkins.createFreeStyleProject();
+        RancherHelmBuilder step = minimalHelmStep();
+        step.setValuesOverlay("image:\n  tag: v2\n");
+        project.getBuildersList().add(step);
+
+        jenkins.configRoundtrip(project);
+        RancherHelmBuilder loaded = project.getBuildersList().get(RancherHelmBuilder.class);
+        assertTrue(loaded.getValuesOverlay().contains("tag: v2"));
+    }
+
+    @Test
+    public void legacyXml_withoutValuesOverlay_loadsEmpty(JenkinsRule jenkins) {
+        String xml =
+                "<io.jenkins.plugins.ranchermanager.RancherHelmBuilder>"
+                        + "<clusterId>local</clusterId>"
+                        + "<releaseName>demo-nginx</releaseName>"
+                        + "<chart>nginx</chart>"
+                        + "<repo>https://charts.example/helm</repo>"
+                        + "<project>mnp</project>"
+                        + "<namespace>default</namespace>"
+                        + "<valuesSource>none</valuesSource>"
+                        + "</io.jenkins.plugins.ranchermanager.RancherHelmBuilder>";
+        assertNotNull(jenkins.jenkins);
+        Object loaded = hudson.model.Items.XSTREAM.fromXML(xml);
+        RancherHelmBuilder step = assertInstanceOf(RancherHelmBuilder.class, loaded);
+        assertEquals("local", step.getClusterId());
+        assertNull(step.getValuesOverlay());
+        assertEquals(RancherHelmBuilder.VALUES_NONE, step.getValuesSource());
+    }
+
+    @Test
     public void configRoundtrip_repositoryValues(JenkinsRule jenkins) throws Exception {
         FreeStyleProject project = jenkins.createFreeStyleProject();
         RancherHelmBuilder step = minimalHelmStep();
@@ -425,6 +476,7 @@ public class RancherHelmBuilderTest {
         FreeStyleBuild build = jenkins.buildAndAssertSuccess(project);
         jenkins.assertLogContains("ClusterRepo=charts-example", build);
         jenkins.assertLogContains("Summary outcome=installed", build);
+        jenkins.assertLogContains("Helm deployment demo-nginx: active", build);
         assertNoClusterRepoRefresh();
         assertEquals(1, upgradeCalls.get());
         assertTrue(upgradeCalled.get());
@@ -468,10 +520,99 @@ public class RancherHelmBuilderTest {
 
         FreeStyleBuild build = jenkins.buildAndAssertSuccess(project);
         jenkins.assertLogNotContains("replicaCount", build);
+        jenkins.assertLogContains("valuesOverlay=false", build);
         assertTrue(upgradeCalled.get());
         assertTrue(lastBody.get().contains("replicaCount"));
         assertTrue(lastBody.get().contains("local:p-abc12"));
         assertTrue(helmAppPollGets.get() >= 1);
+    }
+
+    @Test
+    public void freestyle_nonePlusOverlay_putsValuesInCatalogBody(JenkinsRule jenkins) throws Exception {
+        configureRancher(jenkins);
+        FreeStyleProject project = jenkins.createFreeStyleProject();
+        RancherHelmBuilder step = minimalHelmStep();
+        step.setValuesSource(RancherHelmBuilder.VALUES_NONE);
+        step.setValuesOverlay(
+                "backend:\n  image:\n    tag: \"v11-dev-abc\"\n");
+        project.getBuildersList().add(step);
+
+        FreeStyleBuild build = jenkins.buildAndAssertSuccess(project);
+        jenkins.assertLogContains("valuesOverlay=true", build);
+        jenkins.assertLogNotContains("v11-dev-abc", build);
+        assertTrue(upgradeCalled.get());
+        String body = lastBody.get();
+        assertTrue(body.contains("\"tag\":\"v11-dev-abc\"") || body.contains("\"tag\" : \"v11-dev-abc\""));
+        assertTrue(body.contains("backend"));
+    }
+
+    @Test
+    public void freestyle_yamlPlusOverlay_deepMerge(JenkinsRule jenkins) throws Exception {
+        configureRancher(jenkins);
+        FreeStyleProject project = jenkins.createFreeStyleProject();
+        RancherHelmBuilder step = minimalHelmStep();
+        step.setValuesSource(RancherHelmBuilder.VALUES_YAML);
+        step.setValues("replicaCount: 3\nimage:\n  tag: base\n");
+        step.setValuesOverlay("image:\n  tag: overlay\n");
+        project.getBuildersList().add(step);
+
+        FreeStyleBuild build = jenkins.buildAndAssertSuccess(project);
+        jenkins.assertLogContains("valuesOverlay=true", build);
+        jenkins.assertLogNotContains("tag: overlay", build);
+        jenkins.assertLogNotContains("\"tag\":\"overlay\"", build);
+        String body = lastBody.get();
+        assertTrue(body.contains("\"replicaCount\":3") || body.contains("\"replicaCount\": 3"));
+        assertTrue(body.contains("\"tag\":\"overlay\"") || body.contains("\"tag\" : \"overlay\""));
+        assertFalse(body.contains("\"tag\":\"base\"") || body.contains("\"tag\" : \"base\""));
+    }
+
+    @Test
+    public void freestyle_repositoryPlusOverlay_deepMerge(JenkinsRule jenkins) throws Exception {
+        configureRancher(jenkins);
+        GitRepositoryFiles.testOverride.set(req -> "replicaCount: 2\nimage:\n  tag: git\n");
+        FreeStyleProject project = jenkins.createFreeStyleProject();
+        RancherHelmBuilder step = minimalHelmStep();
+        step.setValuesSource(RancherHelmBuilder.VALUES_REPOSITORY);
+        step.setValuesRepositoryUrl("https://gitlab.example/group/values.git");
+        step.setValuesOverlay("image:\n  tag: from-ci\n");
+        project.getBuildersList().add(step);
+
+        FreeStyleBuild build = jenkins.buildAndAssertSuccess(project);
+        jenkins.assertLogNotContains("from-ci", build);
+        String body = lastBody.get();
+        assertTrue(body.contains("replicaCount"));
+        assertTrue(body.contains("from-ci"));
+        assertFalse(body.contains("\"tag\":\"git\"") || body.contains("\"tag\" : \"git\""));
+    }
+
+    @Test
+    public void badOverlay_abortsBeforeCatalog(JenkinsRule jenkins) throws Exception {
+        configureRancher(jenkins);
+        FreeStyleProject job = jenkins.createFreeStyleProject();
+        RancherHelmBuilder step = minimalHelmStep();
+        step.setValuesOverlay("---\n- not\n- a\n- mapping\n");
+        job.getBuildersList().add(step);
+
+        FreeStyleBuild build = jenkins.buildAndAssertStatus(Result.FAILURE, job);
+        jenkins.assertLogContains("mapping", build);
+        assertFalse(upgradeCalled.get());
+    }
+
+    @Test
+    public void validateOnly_withOverlay_skipsCatalog(JenkinsRule jenkins) throws Exception {
+        configureRancher(jenkins);
+        FreeStyleProject project = jenkins.createFreeStyleProject();
+        RancherHelmBuilder step = minimalHelmStep();
+        step.setValidateOnly(true);
+        step.setValuesOverlay("image:\n  tag: only-validate\n");
+        project.getBuildersList().add(step);
+
+        FreeStyleBuild build = jenkins.buildAndAssertSuccess(project);
+        jenkins.assertLogContains("Summary outcome=validated", build);
+        jenkins.assertLogContains("valuesOverlay=true", build);
+        jenkins.assertLogNotContains("only-validate", build);
+        assertFalse(upgradeCalled.get());
+        assertFalse(installCalled.get());
     }
 
     @Test
@@ -507,7 +648,26 @@ public class RancherHelmBuilderTest {
 
         FreeStyleBuild build = jenkins.buildAndAssertStatus(Result.FAILURE, job);
         jenkins.assertLogContains("No Rancher ClusterRepo matches", build);
+        jenkins.assertLogNotContains("Helm operation failed:", build);
+        jenkins.assertLogNotContains("[ERROR] No Rancher ClusterRepo", build);
         assertNoClusterRepoRefresh();
+        assertFalse(upgradeCalled.get());
+    }
+
+    @Test
+    public void ensureNamespaceForbidden_abortsWithoutHelmPrefix(JenkinsRule jenkins) throws Exception {
+        namespaceGetCode.set(404);
+        namespacePostCode.set(403);
+        configureRancher(jenkins);
+        FreeStyleProject job = jenkins.createFreeStyleProject();
+        job.getBuildersList().add(minimalHelmStep());
+
+        FreeStyleBuild build = jenkins.buildAndAssertStatus(Result.FAILURE, job);
+        jenkins.assertLogContains("Cannot ensure namespace", build);
+        jenkins.assertLogContains("token lacks permission", build);
+        jenkins.assertLogNotContains("Helm operation failed:", build);
+        jenkins.assertLogNotContains("[ERROR] Cannot ensure namespace", build);
+        assertTrue(nsPosted.get());
         assertFalse(upgradeCalled.get());
     }
 
@@ -720,7 +880,11 @@ public class RancherHelmBuilderTest {
 
         FreeStyleBuild build = jenkins.buildAndAssertSuccess(job);
         jenkins.assertLogContains("Summary outcome=installed", build);
+        jenkins.assertLogContains("Namespace ready name=default result=created", build);
+        jenkins.assertLogNotContains("ResourceQuota", build);
+        jenkins.assertLogNotContains("LimitRange", build);
         assertTrue(nsPosted.get());
+        assertEquals(0, nsQuotaPosts.get());
         assertTrue(lastNsCreateBody.get().contains("local:p-abc12"));
         assertTrue(lastNsCreateBody.get().contains("field.cattle.io/projectId"));
         assertTrue(lastBody.get().contains("\"projectId\""));
@@ -886,21 +1050,105 @@ public class RancherHelmBuilderTest {
     }
 
     @Test
-    public void atomic_stillPollsApp(JenkinsRule jenkins) throws Exception {
+    public void legacyAtomic_migratesToWaitCleanupAndTimeout(JenkinsRule jenkins) throws Exception {
         configureRancher(jenkins);
         FreeStyleProject job = jenkins.createFreeStyleProject();
         RancherHelmBuilder step = minimalHelmStep();
         step.setAtomic(true);
+        step.setWaitTimeoutSeconds("120");
         job.getBuildersList().add(step);
 
         FreeStyleBuild build = jenkins.buildAndAssertSuccess(job);
         jenkins.assertLogContains("Summary outcome=installed", build);
-        assertTrue(lastBody.get().contains("\"wait\":true"));
-        assertTrue(lastBody.get().contains("\"cleanupOnFail\":true"));
+        String body = lastBody.get();
+        assertTrue(body.contains("\"wait\":true"));
+        assertTrue(body.contains("\"timeout\":\"120s\""));
+        assertTrue(body.contains("\"cleanupOnFail\":true"));
+        assertFalse(body.contains("\"atomic\":true"));
         assertTrue(helmAppPollGets.get() >= 1);
-        assertEquals(0, helmOperationLogGets.get());
-        assertEquals(0, deploymentLists.get());
-        assertEquals(0, podLists.get());
+    }
+
+    @Test
+    public void legacyAtomicXml_readResolveMigrates(JenkinsRule jenkins) {
+        String xml =
+                "<io.jenkins.plugins.ranchermanager.RancherHelmBuilder>"
+                        + "<clusterId>local</clusterId>"
+                        + "<releaseName>demo-nginx</releaseName>"
+                        + "<chart>nginx</chart>"
+                        + "<repo>https://charts.example/helm</repo>"
+                        + "<project>mnp</project>"
+                        + "<namespace>default</namespace>"
+                        + "<atomic>true</atomic>"
+                        + "<waitTimeoutSeconds>120</waitTimeoutSeconds>"
+                        + "</io.jenkins.plugins.ranchermanager.RancherHelmBuilder>";
+        assertNotNull(jenkins.jenkins);
+        Object loaded = hudson.model.Items.XSTREAM.fromXML(xml);
+        RancherHelmBuilder step = assertInstanceOf(RancherHelmBuilder.class, loaded);
+        assertEquals(Boolean.TRUE, step.getHelmWait());
+        assertEquals(Boolean.TRUE, step.getCleanupOnFail());
+        assertEquals("120", step.getHelmTimeoutSeconds());
+        assertFalse(step.isAtomic());
+    }
+
+    @Test
+    public void newAtomic_withExplicitHelmWait_independentBody(JenkinsRule jenkins) throws Exception {
+        configureRancher(jenkins);
+        FreeStyleProject job = jenkins.createFreeStyleProject();
+        RancherHelmBuilder step = minimalHelmStep();
+        step.setHelmWait(true);
+        step.setHelmTimeoutSeconds("90");
+        step.setAtomic(true);
+        job.getBuildersList().add(step);
+
+        jenkins.buildAndAssertSuccess(job);
+        String body = lastBody.get();
+        assertTrue(body.contains("\"wait\":true"));
+        assertTrue(body.contains("\"timeout\":\"90s\""));
+        assertTrue(body.contains("\"atomic\":true"));
+        assertFalse(body.contains("\"cleanupOnFail\":true"));
+    }
+
+    @Test
+    public void cleanupOnFailAlone_inCatalogBody(JenkinsRule jenkins) throws Exception {
+        configureRancher(jenkins);
+        FreeStyleProject job = jenkins.createFreeStyleProject();
+        RancherHelmBuilder step = minimalHelmStep();
+        step.setCleanupOnFail(true);
+        job.getBuildersList().add(step);
+
+        jenkins.buildAndAssertSuccess(job);
+        String body = lastBody.get();
+        assertTrue(body.contains("\"cleanupOnFail\":true"));
+        assertFalse(body.contains("\"wait\":true"));
+        assertFalse(body.contains("\"atomic\":true"));
+    }
+
+    @Test
+    public void settleOnly_omitsCatalogWaitFlags(JenkinsRule jenkins) throws Exception {
+        configureRancher(jenkins);
+        FreeStyleProject job = jenkins.createFreeStyleProject();
+        job.getBuildersList().add(minimalHelmStep());
+
+        jenkins.buildAndAssertSuccess(job);
+        String body = lastBody.get();
+        assertFalse(body.contains("\"wait\""));
+        assertFalse(body.contains("\"timeout\""));
+        assertFalse(body.contains("\"atomic\""));
+        assertFalse(body.contains("cleanupOnFail"));
+        assertTrue(helmAppPollGets.get() >= 1);
+    }
+
+    @Test
+    public void helmWaitWithoutTimeout_aborts(JenkinsRule jenkins) throws Exception {
+        configureRancher(jenkins);
+        FreeStyleProject job = jenkins.createFreeStyleProject();
+        RancherHelmBuilder step = minimalHelmStep();
+        step.setHelmWait(true);
+        job.getBuildersList().add(step);
+
+        FreeStyleBuild build = jenkins.buildAndAssertStatus(Result.FAILURE, job);
+        jenkins.assertLogContains("Helm timeout", build);
+        assertFalse(upgradeCalled.get());
     }
 
     @Test

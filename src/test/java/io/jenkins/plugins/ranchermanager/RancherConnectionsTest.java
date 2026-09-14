@@ -57,12 +57,22 @@ class RancherConnectionsTest {
     }
 
     @Test
-    void abort_wrapsAndDedupesLoggedAbort() {
-        RancherBuildLogger log = quietLog();
+    void abort_throwsLoggedAbortWithoutConsoleError() {
+        ByteArrayOutputStream buf = new ByteArrayOutputStream();
+        StreamTaskListener listener = new StreamTaskListener(buf, StandardCharsets.UTF_8);
+        RancherBuildLogger log =
+                new RancherBuildLogger(Logger.getLogger("RancherConnectionsTest"), listener, false);
+
         AbortException first = RancherConnections.abort(log, "  boom  ");
         assertInstanceOf(RancherLoggedAbort.class, first);
         assertEquals("boom", first.getMessage());
-        assertTrue(log.hasLoggedError());
+        assertFalse(log.hasLoggedError());
+        assertFalse(buf.toString(StandardCharsets.UTF_8).contains("[ERROR]"));
+
+        AbortException withCause = RancherConnections.abort(log, "with cause", new IOException("root"));
+        assertEquals("with cause", withCause.getMessage());
+        assertFalse(log.hasLoggedError());
+        assertFalse(buf.toString(StandardCharsets.UTF_8).contains("[ERROR]"));
 
         AbortException empty = RancherConnections.abort(quietLog(), "   ");
         assertEquals("failed", empty.getMessage());

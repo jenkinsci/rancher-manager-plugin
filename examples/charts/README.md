@@ -61,7 +61,11 @@ service:
     // valuesFilePath: 'values.yaml',
     // valuesGitCredentialsId: 'git-clone',
     // valuesRepositoryReferenceName: 'refs/heads/main',
-    atomic: true
+    waitTimeoutSeconds: '300',   // Settle (Jenkins poll)
+    helmWait: true,
+    helmTimeoutSeconds: '300',
+    // atomic: true,             // catalog atomic (Helm --atomic); not the same as cleanupOnFail
+    cleanupOnFail: true
 )
 ```
 
@@ -69,4 +73,4 @@ Full pipeline sample: `../PipelineSyntax.rancherHelm.groovy`.
 
 **Values source:** default **No source** (`valuesSource: 'none'` / omit). **Manual YAML** (`yaml` + `values`). **Repository** (`repository` + Git URL / path / optional creds / ref) — Jenkins shallow-clones (private repos via `GIT_ASKPASS`) and POSTs file content as Helm values JSON. Requires `git` on the agent PATH.
 
-**Project** is required (Rancher project name or `p-xxxxx` in this cluster). **Ensure namespace:** on by default — create the namespace **in that project** if missing; set `ensureNamespace: false` to require it already exists there. Skipped under `validateOnly`. Manifest does not take Project/Namespace.
+**Project** is required (Rancher project name or `p-xxxxx` in this cluster). **Ensure namespace:** on by default — create the namespace **in that project** if missing (no ResourceQuota/LimitRange from the plugin); set `ensureNamespace: false` to require it already exists there. Skipped under `validateOnly`. Manifest does not take Project/Namespace.

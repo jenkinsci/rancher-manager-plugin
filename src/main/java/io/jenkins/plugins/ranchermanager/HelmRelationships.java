@@ -69,7 +69,7 @@ final class HelmRelationships {
         if (K8sJson.missing(app)) {
             return out;
         }
-        JsonNode rels = app.path("relationships");
+        JsonNode rels = resolveRelationships(app);
         if (!rels.isArray()) {
             return out;
         }
@@ -79,6 +79,25 @@ final class HelmRelationships {
             }
         }
         return out;
+    }
+
+    /**
+     * Live Steve puts relationships under {@code metadata}; older fixtures use the root.
+     * Prefer a non-empty metadata array, else root.
+     */
+    static JsonNode resolveRelationships(JsonNode app) {
+        if (K8sJson.missing(app)) {
+            return app;
+        }
+        JsonNode meta = app.path(K8sJson.METADATA).path("relationships");
+        if (meta.isArray() && meta.size() > 0) {
+            return meta;
+        }
+        JsonNode root = app.path("relationships");
+        if (root.isArray()) {
+            return root;
+        }
+        return meta.isArray() ? meta : root;
     }
 
     private static boolean isTrackedHelmResource(JsonNode rel) {
