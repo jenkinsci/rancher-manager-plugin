@@ -1,5 +1,7 @@
 # Rancher Manager
 
+[![Quality gate status](https://sonarcloud.io/api/project_badges/measure?project=mlinops_rancher-manager-plugin&metric=alert_status&token=f9cf4e11fb32834a76f61645db39e0fc13c42d13)](https://sonarcloud.io/summary/new_code?id=mlinops_rancher-manager-plugin)
+
 Deploy **Kubernetes manifests** and **Helm charts** from Jenkins through the [Rancher Manager](https://www.rancher.com/) 2.x API — one Bearer token, Freestyle or Pipeline, clear build summaries.
 
 **Who it’s for:** platform and CI engineers who already run Rancher Manager for day-2 K8s and want Jenkins jobs to apply YAML or install/upgrade Helm without driving the Rancher UI. This is **not** the legacy [Rancher](https://plugins.jenkins.io/rancher/) plugin (Cattle 1.x stacks).
