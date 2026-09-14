@@ -64,8 +64,6 @@ public class RancherClientTest {
     private final AtomicInteger namespaceGetCode = new AtomicInteger(404);
     private final AtomicInteger namespaceGetHits = new AtomicInteger();
     private final AtomicInteger namespaceCreateCode = new AtomicInteger(201);
-    private final AtomicInteger resourceQuotaPostCode = new AtomicInteger(201);
-    private final AtomicInteger limitRangePostCode = new AtomicInteger(201);
     private final AtomicReference<String> namespaceGetOkBody =
             new AtomicReference<>(annotatedNamespace("test-ns", "local:p-abc12", "p-abc12"));
     private final AtomicReference<String> lastNsCreateBody = new AtomicReference<>();
@@ -129,8 +127,6 @@ public class RancherClientTest {
         namespaceGetCode.set(404);
         namespaceGetHits.set(0);
         namespaceCreateCode.set(201);
-        resourceQuotaPostCode.set(201);
-        limitRangePostCode.set(201);
         namespaceGetOkBody.set(annotatedNamespace("test-ns", "local:p-abc12", "p-abc12"));
         lastNsCreateBody.set(null);
         projectsCode.set(200);
@@ -194,21 +190,6 @@ public class RancherClientTest {
         });
         server.createContext("/k8s/clusters/local/v1/namespaces/test-ns", exchange -> {
             capture(exchange);
-            String path = exchange.getRequestURI().getPath();
-            if (path.endsWith("/resourcequotas")) {
-                if ("POST".equalsIgnoreCase(exchange.getRequestMethod())) {
-                    postPaths.add(path);
-                    respond(exchange, resourceQuotaPostCode.get(), "{\"metadata\":{\"name\":\"namespace-quota\"}}");
-                    return;
-                }
-            }
-            if (path.endsWith("/limitranges")) {
-                if ("POST".equalsIgnoreCase(exchange.getRequestMethod())) {
-                    postPaths.add(path);
-                    respond(exchange, limitRangePostCode.get(), "{\"metadata\":{\"name\":\"namespace-limits\"}}");
-                    return;
-                }
-            }
             if ("GET".equalsIgnoreCase(exchange.getRequestMethod())) {
                 int hit = namespaceGetHits.incrementAndGet();
                 boolean missing = namespaceGetCode.get() == 404 && hit == 1;
@@ -486,9 +467,9 @@ public class RancherClientTest {
                     base, "secret-token-value", "local", "test-ns", MNP, true);
             assertEquals("created", result);
         }
-        assertTrue(postPaths.stream().anyMatch(p -> p.endsWith("/v1/namespaces")));
-        assertTrue(postPaths.stream().anyMatch(p -> p.endsWith("/test-ns/resourcequotas")));
-        assertTrue(postPaths.stream().anyMatch(p -> p.endsWith("/test-ns/limitranges")));
+        assertEquals(1, postPaths.stream().filter(p -> p.endsWith("/v1/namespaces")).count());
+        assertTrue(postPaths.stream().noneMatch(p -> p.contains("resourcequotas")));
+        assertTrue(postPaths.stream().noneMatch(p -> p.contains("limitranges")));
         JsonNode body = MAPPER.readTree(lastNsCreateBody.get());
         assertEquals("local:p-abc12", body.path("metadata").path("annotations")
                 .path(RancherClient.PROJECT_ID_FIELD).asText());
@@ -497,16 +478,14 @@ public class RancherClientTest {
     }
 
     @Test
-    public void prepareNamespace_existingMatchingSkipsQuotaPosts() throws Exception {
+    public void prepareNamespace_existingInProject_noPosts() throws Exception {
         namespaceGetCode.set(200);
         try (RancherClient client = new RancherClient(2000, 2000)) {
             String result = client.prepareNamespaceInProject(
                     base, "secret-token-value", "local", "test-ns", MNP, true);
             assertEquals("existed", result);
         }
-        assertTrue(postPaths.stream().noneMatch(p -> p.contains("resourcequotas")));
-        assertTrue(postPaths.stream().noneMatch(p -> p.contains("limitranges")));
-        assertTrue(postPaths.stream().noneMatch(p -> p.endsWith("/v1/namespaces")));
+        assertTrue(postPaths.isEmpty());
     }
 
     @Test
@@ -548,18 +527,8 @@ public class RancherClientTest {
             assertEquals(1, countPhrase(msg, "Cannot ensure namespace"));
             assertEquals(1, countPhrase(msg, "lacks permission"));
         }
-    }
-
-    @Test
-    public void prepareNamespace_quotaAlreadyExistsIsIdempotent() throws Exception {
-        resourceQuotaPostCode.set(409);
-        try (RancherClient client = new RancherClient(2000, 2000)) {
-            String result = client.prepareNamespaceInProject(
-                    base, "secret-token-value", "local", "test-ns", MNP, true);
-            assertEquals("created", result);
-        }
-        assertTrue(postPaths.stream().anyMatch(p -> p.endsWith("/test-ns/resourcequotas")));
-        assertTrue(postPaths.stream().anyMatch(p -> p.endsWith("/test-ns/limitranges")));
+        assertTrue(postPaths.stream().noneMatch(p -> p.contains("resourcequotas")));
+        assertTrue(postPaths.stream().noneMatch(p -> p.contains("limitranges")));
     }
 
     @Test
@@ -571,6 +540,7 @@ public class RancherClientTest {
             assertEquals("already-exists", result);
         }
         assertTrue(postPaths.stream().noneMatch(p -> p.contains("resourcequotas")));
+        assertTrue(postPaths.stream().noneMatch(p -> p.contains("limitranges")));
     }
 
     @Test
@@ -744,6 +714,9 @@ public class RancherClientTest {
                                     "local:p-abc12",
                                     "0.1.11",
                                     null,
+                                    false,
+                                    null,
+                                    false,
                                     false)));
             assertTrue(e.getMessage().contains("no chart version found for nginx-0.1.11"));
             assertFalse(e.getMessage().contains("after refresh"));
@@ -770,6 +743,9 @@ public class RancherClientTest {
                 "local:p-abc12",
                 "0.1.11",
                 null,
+                false,
+                null,
+                false,
                 false);
         IOException miss = new IOException("HTTP 500 - no chart version found for nginx-0.1.11");
         assertEquals(
@@ -931,8 +907,7 @@ public class RancherClientTest {
             assertTrue(e.getMessage().contains("failed"));
             assertTrue(e.getMessage().contains("exit code: 123"));
             assertTrue(e.getMessage().contains("UPGRADE FAILED"));
-            String truncated = RancherConnections.truncateMessage(
-                    new IOException("Helm operation failed: " + e.getMessage()));
+            String truncated = RancherConnections.truncateMessage(e);
             assertTrue(truncated.contains("UPGRADE FAILED"));
             assertTrue(truncated.contains("exit code: 123"));
         }
@@ -958,8 +933,7 @@ public class RancherClientTest {
                     () -> waitHelm(client, chartAction(), null, 1000L, 10L));
             assertTrue(e.getMessage().contains("exit code: 123"));
             assertTrue(e.getMessage().contains("UPGRADE FAILED"));
-            String builderError = RancherConnections.truncateMessage(
-                    new IOException("Helm operation failed: " + e.getMessage()));
+            String builderError = RancherConnections.truncateMessage(e);
             assertTrue(builderError.contains("UPGRADE FAILED"));
             assertTrue(builderError.contains("exit code: 123"));
             assertTrue(builderError.contains("chart conflict at end"));
@@ -1134,7 +1108,7 @@ public class RancherClientTest {
     @Test
     public void truncateMessage_keepsKstatusAndHelmTail() {
         String marker = "Error: UPGRADE FAILED: keep-me";
-        String longMsg = "Helm operation failed: Helm operation \"op\" failed: exit code: 123: "
+        String longMsg = "Helm operation \"op\" failed: exit code: 123: "
                 + "x".repeat(RancherClient.MAX_ERROR_DETAIL_CHARS)
                 + marker;
         String out = RancherConnections.truncateMessage(new IOException(longMsg));

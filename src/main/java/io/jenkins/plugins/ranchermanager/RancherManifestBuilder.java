@@ -293,8 +293,7 @@ public class RancherManifestBuilder extends Builder implements SimpleBuildStep {
         } catch (AbortException e) {
             throw e;
         } catch (IOException e) {
-            throw RancherConnections.abort(
-                    log, "Manifest operation failed: " + RancherConnections.truncateMessage(e), e);
+            throw RancherConnections.abort(log, RancherConnections.truncateMessage(e), e);
         }
     }
 

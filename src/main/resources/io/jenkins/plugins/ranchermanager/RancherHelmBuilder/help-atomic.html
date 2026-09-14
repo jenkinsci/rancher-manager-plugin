@@ -1,7 +1,3 @@
 <div>
-  <p>Adds <code>wait</code> and <code>cleanupOnFail</code> to the Rancher catalog install or upgrade
-     body (Helm <code>--wait</code> / rollback on fail when the API supports it).</p>
-  <p>This does not change the Jenkins wait: the step still polls the Helm app and then release
-     workloads. A Helm rollback does not make the build succeed. Catalog HTTP 200 is not success
-     by itself.</p>
+  <p>On failed upgrade, roll back changes (Helm <code>--atomic</code>).</p>
 </div>

@@ -33,20 +33,7 @@ final class RancherNamespaces {
                         + createIfMissing);
         String result = client.prepareNamespaceInProject(
                 baseUrl, apiToken, clusterId, namespace, project, createIfMissing);
-        if ("created".equals(result)) {
-            log.info(
-                    "Namespace ready name="
-                            + namespace
-                            + " result="
-                            + result
-                            + " (ResourceQuota "
-                            + RancherClient.RESOURCE_QUOTA_NAME
-                            + " and LimitRange "
-                            + RancherClient.LIMIT_RANGE_NAME
-                            + " applied)");
-        } else {
-            log.info("Namespace ready name=" + namespace + " result=" + result);
-        }
+        log.info("Namespace ready name=" + namespace + " result=" + result);
     }
 
     static String resolve(String configured, EnvVars buildEnv) {

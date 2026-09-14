@@ -1,5 +1,8 @@
 <div>
   <p>Git repository URL hosting the manifest file.</p>
   <p>Do not put credentials in the URL (no <code>user:pass@host</code>). Use Git credentials for private repos.</p>
+  <p>On GitLab, project visibility <strong>Public</strong> does not always allow <code>git clone</code>:
+    if Settings → Visibility → Repository (download code) is off, clone fails with a download-disabled
+    error — that is not a missing Jenkins git credential.</p>
   <p>Example: <code>https://gitlab.example/group/manifests.git</code></p>
 </div>

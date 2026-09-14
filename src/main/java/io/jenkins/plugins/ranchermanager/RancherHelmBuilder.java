@@ -59,10 +59,14 @@ public class RancherHelmBuilder extends Builder implements SimpleBuildStep {
     private String version;
     private String valuesSource;
     private String values;
+    private String valuesOverlay;
     private String valuesRepositoryUrl;
     private String valuesFilePath;
     private String valuesGitCredentialsId;
     private String valuesRepositoryReferenceName;
+    private Boolean helmWait;
+    private String helmTimeoutSeconds;
+    private Boolean cleanupOnFail;
     private boolean atomic;
     private boolean forceReinstall;
     private String waitTimeoutSeconds;
@@ -144,6 +148,15 @@ public class RancherHelmBuilder extends Builder implements SimpleBuildStep {
         this.values = values;
     }
 
+    public String getValuesOverlay() {
+        return valuesOverlay == null || valuesOverlay.isBlank() ? null : valuesOverlay;
+    }
+
+    @DataBoundSetter
+    public void setValuesOverlay(String valuesOverlay) {
+        this.valuesOverlay = valuesOverlay == null || valuesOverlay.isBlank() ? null : valuesOverlay;
+    }
+
     public String getValuesRepositoryUrl() {
         return valuesRepositoryUrl;
     }
@@ -190,6 +203,35 @@ public class RancherHelmBuilder extends Builder implements SimpleBuildStep {
                         : valuesRepositoryReferenceName.trim();
     }
 
+    public Boolean getHelmWait() {
+        return helmWait;
+    }
+
+    @DataBoundSetter
+    public void setHelmWait(Boolean helmWait) {
+        this.helmWait = helmWait;
+    }
+
+    public String getHelmTimeoutSeconds() {
+        return helmTimeoutSeconds == null ? "" : helmTimeoutSeconds;
+    }
+
+    @DataBoundSetter
+    public void setHelmTimeoutSeconds(String helmTimeoutSeconds) {
+        this.helmTimeoutSeconds = helmTimeoutSeconds == null || helmTimeoutSeconds.isBlank()
+                ? null
+                : helmTimeoutSeconds.trim();
+    }
+
+    public Boolean getCleanupOnFail() {
+        return cleanupOnFail;
+    }
+
+    @DataBoundSetter
+    public void setCleanupOnFail(Boolean cleanupOnFail) {
+        this.cleanupOnFail = cleanupOnFail;
+    }
+
     public boolean isAtomic() {
         return atomic;
     }
@@ -197,6 +239,36 @@ public class RancherHelmBuilder extends Builder implements SimpleBuildStep {
     @DataBoundSetter
     public void setAtomic(boolean atomic) {
         this.atomic = atomic;
+    }
+
+    /**
+     * Legacy Jenkins {@code atomic: true} meant catalog wait + cleanupOnFail (not Helm {@code --atomic}).
+     * Called from XStream {@link #readResolve()} and Pipeline {@link #parseInputs}.
+     */
+    void applyLegacyAtomicBundle() {
+        if (atomic && helmWait == null) {
+            helmWait = Boolean.TRUE;
+            if (cleanupOnFail == null) {
+                cleanupOnFail = Boolean.TRUE;
+            }
+            if (helmTimeoutSeconds == null || helmTimeoutSeconds.isBlank()) {
+                helmTimeoutSeconds = waitTimeoutSeconds == null || waitTimeoutSeconds.isBlank()
+                        ? String.valueOf(HelmAppStates.DEFAULT_TIMEOUT_SECONDS)
+                        : waitTimeoutSeconds.trim();
+            }
+            atomic = false;
+        }
+        if (helmWait == null) {
+            helmWait = Boolean.FALSE;
+        }
+        if (cleanupOnFail == null) {
+            cleanupOnFail = Boolean.FALSE;
+        }
+    }
+
+    private Object readResolve() {
+        applyLegacyAtomicBundle();
+        return this;
     }
 
     public boolean isForceReinstall() {
@@ -343,7 +415,8 @@ public class RancherHelmBuilder extends Builder implements SimpleBuildStep {
                 return;
             }
 
-            JsonNode valuesNode = resolveValuesNode(inputs, item, workspace, launcher, listener, log);
+            JsonNode baseValues = resolveValuesNode(inputs, item, workspace, launcher, listener, log);
+            JsonNode valuesNode = YamlValues.merge(baseValues, inputs.valuesOverlay);
             logValuesDebug(log, inputs, valuesNode);
 
             deployAndSummarize(
@@ -352,12 +425,11 @@ public class RancherHelmBuilder extends Builder implements SimpleBuildStep {
     }
 
     private void logValuesDebug(RancherBuildLogger log, HelmInputs inputs, JsonNode valuesNode) {
-        log.info("Values source=" + inputs.valuesSource);
-        if (HelmValuesSource.isNone(inputs.valuesSource)) {
+        log.info("Values source=" + inputs.valuesSource + " valuesOverlay=" + inputs.hasValuesOverlay());
+        if (valuesNode == null || valuesNode.isNull()) {
             return;
         }
-        int length = valuesNode == null || valuesNode.isNull() ? 0 : valuesNode.toString().length();
-        log.debug("valuesLength=" + length);
+        log.debug("valuesLength=" + valuesNode.toString().length());
     }
 
     private JsonNode resolveValuesNode(
@@ -480,6 +552,7 @@ public class RancherHelmBuilder extends Builder implements SimpleBuildStep {
             fields.put("releaseName", inputs.release);
             fields.put("chart", inputs.chart);
             fields.put("valuesSource", inputs.valuesSource);
+            fields.put("valuesOverlay", String.valueOf(inputs.hasValuesOverlay()));
             fields.put("mode", connection.mode);
             if (inputs.version != null) {
                 fields.put("version", inputs.version);
@@ -488,8 +561,7 @@ public class RancherHelmBuilder extends Builder implements SimpleBuildStep {
         } catch (AbortException e) {
             throw e;
         } catch (IOException e) {
-            throw RancherConnections.abort(
-                    log, "Helm operation failed: " + RancherConnections.truncateMessage(e), e);
+            throw RancherConnections.abort(log, RancherConnections.truncateMessage(e), e);
         }
     }
 
@@ -585,7 +657,10 @@ public class RancherHelmBuilder extends Builder implements SimpleBuildStep {
                 project.catalogId(),
                 inputs.version,
                 valuesNode,
-                inputs.atomic);
+                inputs.helmWait,
+                inputs.helmTimeout,
+                inputs.atomic,
+                inputs.cleanupOnFail);
     }
 
     static void requireLooksLikeYaml(String content) {
@@ -600,6 +675,7 @@ public class RancherHelmBuilder extends Builder implements SimpleBuildStep {
     }
 
     private HelmInputs parseInputs(EnvVars buildEnv, RancherBuildLogger log) throws AbortException {
+        applyLegacyAtomicBundle();
         final String cluster = RancherConnections.abortOn(
                 log, () -> RancherConnections.resolveClusterId(clusterId, buildEnv));
         final String expandedRelease = RancherConnections.abortOn(log, () -> {
@@ -620,6 +696,19 @@ public class RancherHelmBuilder extends Builder implements SimpleBuildStep {
         final int waitSeconds = RancherConnections.abortOn(log, () -> {
             String raw = waitTimeoutSeconds == null ? "" : buildEnv.expand(waitTimeoutSeconds).trim();
             return HelmAppStates.parseTimeoutSeconds(raw);
+        });
+        final boolean useHelmWait = Boolean.TRUE.equals(helmWait);
+        final boolean useCleanupOnFail = Boolean.TRUE.equals(cleanupOnFail);
+        final String helmTimeoutCatalog = RancherConnections.abortOn(log, () -> {
+            if (!useHelmWait) {
+                return null;
+            }
+            String raw = helmTimeoutSeconds == null ? "" : buildEnv.expand(helmTimeoutSeconds).trim();
+            if (raw.isBlank()) {
+                throw new IllegalArgumentException(
+                        "Helm timeout (seconds) is required when Helm wait is enabled.");
+            }
+            return HelmAppStates.parseTimeoutSeconds(raw) + "s";
         });
         String mode = getValuesSource();
         if (HelmValuesSource.isYaml(mode)) {
@@ -645,6 +734,7 @@ public class RancherHelmBuilder extends Builder implements SimpleBuildStep {
             valuesRef = buildEnv.expand(getValuesRepositoryReferenceName()).trim();
             valuesPath = buildEnv.expand(getValuesFilePath()).trim();
         }
+        JsonNode overlayNode = RancherConnections.abortOn(log, () -> parseValuesOverlay(buildEnv));
         return new HelmInputs(
                 cluster,
                 expandedProject,
@@ -657,8 +747,24 @@ public class RancherHelmBuilder extends Builder implements SimpleBuildStep {
                 valuesRepo,
                 valuesRef,
                 valuesPath,
+                overlayNode,
+                useHelmWait,
+                helmTimeoutCatalog,
                 atomic,
+                useCleanupOnFail,
                 waitSeconds);
+    }
+
+    private JsonNode parseValuesOverlay(EnvVars buildEnv) {
+        if (valuesOverlay == null || valuesOverlay.isBlank()) {
+            return null;
+        }
+        String expanded = buildEnv.expand(valuesOverlay);
+        if (expanded == null || expanded.isBlank()) {
+            return null;
+        }
+        requireLooksLikeYaml(expanded);
+        return YamlValues.toJsonNode(expanded);
     }
 
     private void finishValidateOnly(RancherBuildLogger log, long startedNs, HelmInputs inputs) {
@@ -678,7 +784,7 @@ public class RancherHelmBuilder extends Builder implements SimpleBuildStep {
         log.debug("Would wait for Helm release timeoutSeconds=" + inputs.waitTimeoutSeconds);
         log.debug("Chart repo=" + inputs.repo + " chart=" + inputs.chart
                 + (inputs.version == null ? "" : " version=" + inputs.version));
-        log.debug("valuesSource=" + inputs.valuesSource);
+        log.debug("valuesSource=" + inputs.valuesSource + " valuesOverlay=" + inputs.hasValuesOverlay());
         var fields = RancherBuildLogger.summaryFields();
         fields.put("outcome", "validated");
         fields.put("clusterId", inputs.clusterId);
@@ -686,6 +792,7 @@ public class RancherHelmBuilder extends Builder implements SimpleBuildStep {
         fields.put("releaseName", inputs.release);
         fields.put("chart", inputs.chart);
         fields.put("valuesSource", inputs.valuesSource);
+        fields.put("valuesOverlay", String.valueOf(inputs.hasValuesOverlay()));
         log.summaryWithDuration(startedNs, fields);
     }
 
@@ -719,8 +826,16 @@ public class RancherHelmBuilder extends Builder implements SimpleBuildStep {
             String valuesRepoUrl,
             String valuesGitRef,
             String valuesPath,
+            JsonNode valuesOverlay,
+            boolean helmWait,
+            String helmTimeout,
             boolean atomic,
-            int waitTimeoutSeconds) {}
+            boolean cleanupOnFail,
+            int waitTimeoutSeconds) {
+        boolean hasValuesOverlay() {
+            return valuesOverlay != null && !valuesOverlay.isNull();
+        }
+    }
 
     @Symbol("rancherHelm")
     @Extension
@@ -850,6 +965,21 @@ public class RancherHelmBuilder extends Builder implements SimpleBuildStep {
             }
             try {
                 requireLooksLikeYaml(value);
+                return FormValidation.ok();
+            } catch (IllegalArgumentException e) {
+                return FormValidation.error(e.getMessage());
+            }
+        }
+
+        @POST
+        public FormValidation doCheckValuesOverlay(@QueryParameter String value, @AncestorInPath Item item) {
+            RancherConnections.checkConfigure(item);
+            if (value == null || value.isBlank()) {
+                return FormValidation.ok();
+            }
+            try {
+                requireLooksLikeYaml(value);
+                YamlValues.parseToMap(value);
                 return FormValidation.ok();
             } catch (IllegalArgumentException e) {
                 return FormValidation.error(e.getMessage());

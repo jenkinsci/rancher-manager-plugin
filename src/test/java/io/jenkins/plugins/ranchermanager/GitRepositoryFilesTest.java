@@ -374,6 +374,51 @@ class GitRepositoryFilesTest {
     }
 
     @Test
+    void readFile_cloneFailure_gitlabDownloadDisabled_notCredentialsAdvice() throws Exception {
+        allowLoopback();
+        FilePath workspace = new FilePath(tempDir.resolve("ws-gitlab-disabled").toFile());
+        workspace.mkdirs();
+        String stderr = "remote: You are not allowed to download code from this project.\n"
+                + "fatal: unable to access 'https://gitlab.example/group/values.git/': "
+                + "The requested URL returned error: 403";
+        Launcher launcher = new StubGitLauncher(128, stderr, null);
+        IOException ex = assertThrows(
+                IOException.class,
+                () -> GitRepositoryFiles.readFile(
+                        LOOPBACK_REPO,
+                        "main",
+                        "values.yaml",
+                        cloneCtx(null, workspace, launcher, TaskListener.NULL)));
+        String msg = ex.getMessage();
+        assertTrue(msg.contains("git exit 128"));
+        assertTrue(msg.contains("Repository") || msg.contains("download code"));
+        assertTrue(msg.contains("not a Jenkins git credentials"));
+        assertFalse(msg.contains("Check URL, reference, credentials, and that git is on PATH"));
+        assertTrue(msg.contains("Detail:"));
+        assertTrue(msg.toLowerCase().contains("not allowed to download code"));
+    }
+
+    @Test
+    void readFile_cloneFailure_plainHttp403_usesGenericAdvice() throws Exception {
+        allowLoopback();
+        FilePath workspace = new FilePath(tempDir.resolve("ws-403").toFile());
+        workspace.mkdirs();
+        Launcher launcher = new StubGitLauncher(
+                128, "fatal: unable to access 'https://gitlab.example/r.git/': The requested URL returned error: 403", null);
+        IOException ex = assertThrows(
+                IOException.class,
+                () -> GitRepositoryFiles.readFile(
+                        LOOPBACK_REPO,
+                        "main",
+                        "values.yaml",
+                        cloneCtx(null, workspace, launcher, TaskListener.NULL)));
+        String msg = ex.getMessage();
+        assertTrue(msg.contains("Check URL, reference, credentials, and that git is on PATH"));
+        assertFalse(msg.contains("not a Jenkins git credentials"));
+        assertTrue(msg.contains("Detail:"));
+    }
+
+    @Test
     void readFile_cloneFailure_truncatesLongStderrAndScrubs() throws Exception {
         allowLoopback();
         FilePath workspace = new FilePath(tempDir.resolve("ws-fail").toFile());
@@ -390,6 +435,7 @@ class GitRepositoryFilesTest {
                         "values.yaml",
                         cloneCtx(auth, workspace, launcher, TaskListener.NULL)));
         assertTrue(ex.getMessage().contains("git exit 128"));
+        assertTrue(ex.getMessage().contains("Check URL, reference, credentials, and that git is on PATH"));
         assertTrue(ex.getMessage().contains("Detail:"));
         assertTrue(ex.getMessage().contains("…"));
         assertFalse(ex.getMessage().contains(password));
@@ -409,6 +455,7 @@ class GitRepositoryFilesTest {
                         "values.yaml",
                         cloneCtx(null, workspace, launcher, TaskListener.NULL)));
         assertTrue(ex.getMessage().contains("git exit 1"));
+        assertTrue(ex.getMessage().contains("Check URL, reference, credentials, and that git is on PATH"));
         assertFalse(ex.getMessage().contains("Detail:"));
     }
 

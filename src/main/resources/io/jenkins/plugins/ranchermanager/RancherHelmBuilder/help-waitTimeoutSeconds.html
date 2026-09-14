@@ -1,20 +1,4 @@
 <div>
-  <p>How long Jenkins waits after catalog install or upgrade for this Helm operation to settle.
-     First the named catalog operation (<code>chartActionOutput</code> →
-     <code>GET catalog.cattle.io.operations</code> <code>metadata.state</code>) must leave Steve
-     transitioning without <code>error</code>. Then the Helm app
-     <code>summary.state</code> (including <code>pending-upgrade</code> / <code>pending-rollback</code>)
-     and helm-owned objects on the app (<code>relationships</code>).
-     Default <code>300</code> seconds. Must be greater than zero (empty uses the default).
-     The same timeout also bounds ClusterRepo index refresh when catalog reports the chart is missing.</p>
-  <p>A leftover failed or deployed summary from before this catalog call is not the result yet.
-     A failed operation (helm-pod exit not 0) fails the build immediately with that kstatus message
-     and the <strong>tail</strong> of the Helm job log (Steve operation <code>/logs</code>, same as Recent Operations → Logs).
-     A long log is truncated so <code>exit code: N</code> and the ending <code>Error:</code> / <code>FAILED</code> stay visible.
-     An empty 2xx log body is marked <code>helm job log was empty</code> (not a bare exit code alone).
-     404 leaves only kstatus; other log HTTP errors add a short cannot-read note with status.
-     Jenkins does not wait on a missing app.
-     Settled app <code>failed</code> fails the build even if workloads still look active (cluster serving).
-     Settled ready with a Deployment/StatefulSet that never becomes <code>active</code> also fails the build.
-     HTTP GET paths are debug (Verbose logging). Console INFO is state and object changes of this operation.</p>
+  <p>How long this job waits for the Helm release to become ready after catalog.
+    Default <code>300</code> seconds. Leave blank for the default.</p>
 </div>

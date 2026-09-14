@@ -52,12 +52,24 @@
         <f:textarea/>
       </f:entry>
     </f:radioBlock>
+    <f:entry title="${%Values overlay}" field="valuesOverlay">
+      <f:textarea/>
+    </f:entry>
     <f:advanced title="${%Advanced}">
+      <f:entry title="${%Settle timeout (seconds)}" field="waitTimeoutSeconds">
+        <f:textbox default="300"/>
+      </f:entry>
+      <f:entry title="${%Helm timeout (seconds)}" field="helmTimeoutSeconds">
+        <f:textbox/>
+      </f:entry>
+      <f:entry title="${%Helm wait}" field="helmWait">
+        <f:checkbox/>
+      </f:entry>
       <f:entry title="${%Atomic}" field="atomic">
         <f:checkbox/>
       </f:entry>
-      <f:entry title="${%Wait timeout (seconds)}" field="waitTimeoutSeconds">
-        <f:textbox default="300"/>
+      <f:entry title="${%Cleanup on fail}" field="cleanupOnFail">
+        <f:checkbox/>
       </f:entry>
       <f:entry title="${%Force reinstall}" field="forceReinstall">
         <f:checkbox/>

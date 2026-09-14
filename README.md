@@ -18,14 +18,14 @@ Typical flows:
 - Install or upgrade a Helm chart from an existing ClusterRepo into a Rancher project
 - Run **Validate only** to preflight the connection without mutating Rancher
 
-Build logs stay scannable: short INFO phases and a **Summary** with `outcome=created|updated|…`. Tokens and YAML bodies are never dumped to the console.
+Build logs stay scannable: short INFO phases and a **Summary** with `outcome=created|updated|…`. Tokens and YAML bodies are never dumped to the console. Failures surface once as the abort / `ERROR:` message from the client (no duplicated `[ERROR]` banner line, no `Helm operation failed:` wrapper).
 
 ## Features
 
 - **System global config** — Rancher URL + Secret text API token (`rancherManager`); connectivity is checked on build **preflight** (`GET /v3/clusters/{id}`; no System Test connection button)
 - **Inherit / Manual** Rancher connection on every step (default Inherit)
 - **Rancher Manifest Deployment** (`rancherManifest`) — YAML from Git or manual; `POST …?action=apply`; poll Deployment/StatefulSet/DaemonSet/Job until Ready (`waitTimeoutSeconds`, default 300). ConfigMap-only succeeds after apply. Namespace comes from the YAML; the step does not create namespaces
-- **Rancher Helm Deployment** (`rancherHelm`) — chart repo `http(s)://` or `oci://` resolved to an existing ClusterRepo (index refresh only if the chart is missing, then one retry). Project + namespace; optional ensure namespace **in that project**. After catalog 201, poll the Helm operation then the app. Failed Helm is never SUCCESS. Values none / YAML / Git file
+- **Rancher Helm Deployment** (`rancherHelm`) — chart repo `http(s)://` or `oci://` resolved to an existing ClusterRepo (index refresh only if the chart is missing, then one retry). Project + namespace; optional ensure namespace **in that project** (create Namespace only — no ResourceQuota/LimitRange). After catalog 201, poll the Helm operation then the app (`metadata.relationships`). Failed Helm is never SUCCESS. Values none / YAML / Git file; optional `valuesOverlay`. Catalog knobs: Helm wait / timeout / atomic / cleanupOnFail (independent); Settle timeout is Jenkins poll only. Legacy job `atomic: true` migrates to wait+cleanup+timeout (not catalog atomic)
 - **Cluster-scoped API keys** — preflight uses cluster GET only (not `/v3/users?me=true`)
 - **`validateOnly`** — field checks + preflight; no apply / catalog mutate
 
