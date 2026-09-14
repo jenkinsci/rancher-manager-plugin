@@ -15,7 +15,7 @@ Configure Rancher once under **Manage Jenkins → System**, then add build steps
 Typical flows:
 
 - Apply a Kubernetes manifest from Git or pasted YAML and wait until workloads are Ready
-- Install or upgrade a Helm chart from an existing ClusterRepo into a Rancher project
+- Install or upgrade a Helm chart; optional `valuesOverlay` and independent Helm wait / timeout / atomic / cleanupOnFail
 - Run **Validate only** to preflight the connection without mutating Rancher
 
 Build logs stay scannable: short INFO phases and a **Summary** with `outcome=created|updated|…`. Tokens and YAML bodies are never dumped to the console. Failures surface once as the abort / `ERROR:` message from the client (no duplicated `[ERROR]` banner line, no `Helm operation failed:` wrapper).
