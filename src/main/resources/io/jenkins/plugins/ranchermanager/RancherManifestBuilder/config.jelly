@@ -29,7 +29,7 @@
       </f:entry>
     </f:radioBlock>
     <f:advanced title="${%Advanced}">
-      <f:entry title="${%Wait timeout (seconds)}" field="waitTimeoutSeconds">
+      <f:entry title="${%Settle timeout (seconds)}" field="waitTimeoutSeconds">
         <f:textbox default="300"/>
       </f:entry>
       <f:entry title="${%Validate only}" field="validateOnly">

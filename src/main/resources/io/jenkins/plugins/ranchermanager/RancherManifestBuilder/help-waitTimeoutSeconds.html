@@ -1,10 +1,4 @@
 <div>
-  <p>How long Jenkins waits after Steve apply for Deployment, StatefulSet, DaemonSet, and Job
-     resources declared in this YAML to become ready (Steve <code>metadata.state</code> active
-     or Kubernetes ready replicas / Job completions). Default <code>300</code> seconds.
-     Must be greater than zero (empty uses the default).</p>
-  <p>Manifests with only ConfigMap, Service, Namespace, and similar kinds succeed after apply
-     without polling. Apply HTTP OK alone is not success when those workloads are present.
-     On timeout, the build fails with the last workload states and one pods list hint
-     (not on every poll tick). Validate only skips apply and wait.</p>
+  <p>How long this job waits after apply for workloads to become ready.
+    Default <code>300</code> seconds. Leave blank for the default.</p>
 </div>
