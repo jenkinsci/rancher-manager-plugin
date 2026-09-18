@@ -34,7 +34,7 @@ metadata:
 data:
   key: value
 ''',
-                    waitTimeoutSeconds: '300'
+                    waitTimeoutSeconds: '300'  // Settle timeout: Jenkins poll after apply (default 300)
                 )
             }
         }

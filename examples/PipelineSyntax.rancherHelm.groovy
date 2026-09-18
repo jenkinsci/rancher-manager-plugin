@@ -37,7 +37,7 @@ pipeline {
                     repo: 'https://charts.example/helm',
                     project: 'Default',
                     namespace: 'default',
-                    waitTimeoutSeconds: '300',
+                    waitTimeoutSeconds: '300',  // Settle timeout: Jenkins poll after catalog
                     helmWait: true,
                     helmTimeoutSeconds: '300',
                     cleanupOnFail: true

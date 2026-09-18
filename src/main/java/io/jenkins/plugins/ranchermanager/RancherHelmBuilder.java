@@ -708,7 +708,7 @@ public class RancherHelmBuilder extends Builder implements SimpleBuildStep {
                 throw new IllegalArgumentException(
                         "Helm timeout (seconds) is required when Helm wait is enabled.");
             }
-            return HelmAppStates.parseTimeoutSeconds(raw) + "s";
+            return HelmAppStates.parsePositiveSeconds(raw, HelmAppStates.HELM_TIMEOUT) + "s";
         });
         String mode = getValuesSource();
         if (HelmValuesSource.isYaml(mode)) {

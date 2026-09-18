@@ -1042,11 +1042,28 @@ public class RancherHelmBuilderTest {
         job.getBuildersList().add(step);
 
         FreeStyleBuild build = jenkins.buildAndAssertStatus(Result.FAILURE, job);
-        jenkins.assertLogContains("Wait timeout must be a positive number of seconds", build);
+        jenkins.assertLogContains("Settle timeout must be a positive number of seconds", build);
+        jenkins.assertLogNotContains("Wait timeout must be", build);
         assertFalse(upgradeCalled.get());
         assertEquals(0, helmAppGets.get());
         assertEquals(0, helmOperationGets.get());
         assertEquals(0, helmOperationLogGets.get());
+    }
+
+    @Test
+    public void helmTimeoutZero_abortsOnParse(JenkinsRule jenkins) throws Exception {
+        configureRancher(jenkins);
+        FreeStyleProject job = jenkins.createFreeStyleProject();
+        RancherHelmBuilder step = minimalHelmStep();
+        step.setHelmWait(true);
+        step.setHelmTimeoutSeconds("0");
+        job.getBuildersList().add(step);
+
+        FreeStyleBuild build = jenkins.buildAndAssertStatus(Result.FAILURE, job);
+        jenkins.assertLogContains("Helm timeout must be a positive number of seconds", build);
+        jenkins.assertLogNotContains("Settle timeout must be", build);
+        jenkins.assertLogNotContains("Wait timeout must be", build);
+        assertFalse(upgradeCalled.get());
     }
 
     @Test

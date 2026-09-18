@@ -21,18 +21,35 @@ class RancherClientErrorsTest {
 
     @Test
     void httpError_statusAndHtml() {
+        byte[] html = "<!DOCTYPE html><html>".getBytes(StandardCharsets.UTF_8);
+        URI httpRancher = URI.create("http://rancher.example/v3");
+        URI httpsRancher = URI.create("https://rancher.example/v3");
+
         assertTrue(RancherClient.httpError(401, new byte[0]).getMessage().contains("HTTP 401"));
         assertTrue(RancherClient.httpError(403, "{\"message\":\"no\"}".getBytes(StandardCharsets.UTF_8))
                 .getMessage()
                 .contains("HTTP 403"));
         assertTrue(RancherClient.httpError(404, new byte[0]).getMessage().contains("HTTP 404"));
         assertTrue(RancherClient.httpError(500, new byte[0]).getMessage().startsWith("HTTP 500"));
-        assertTrue(RancherClient.httpError(502, "<!DOCTYPE html><html>".getBytes(StandardCharsets.UTF_8))
-                .getMessage()
-                .contains("HTML"));
+
+        String http308 = RancherClient.httpError(308, html, httpRancher).getMessage();
+        assertTrue(http308.contains("HTTP 308"));
+        assertTrue(http308.contains("https://"));
+        assertFalse(http308.contains("HTML"));
+        assertFalse(http308.contains("UI page"));
+
+        String https308 = RancherClient.httpError(308, html, httpsRancher).getMessage();
+        assertTrue(https308.contains("redirect"));
+        assertFalse(https308.contains("HTML"));
+        assertFalse(https308.contains("uses http://"));
+
+        assertTrue(RancherClient.httpError(502, html).getMessage().contains("HTML"));
         assertFalse(RancherClient.looksLikeHtml(null));
         assertFalse(RancherClient.looksLikeHtml(new byte[0]));
         assertTrue(RancherClient.looksLikeHtml("<html>x".getBytes(StandardCharsets.UTF_8)));
+        assertTrue(RancherClient.isHttpRedirectStatus(301));
+        assertTrue(RancherClient.isHttpRedirectStatus(308));
+        assertFalse(RancherClient.isHttpRedirectStatus(502));
     }
 
     @Test

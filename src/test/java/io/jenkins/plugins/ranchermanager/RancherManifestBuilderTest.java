@@ -351,6 +351,21 @@ public class RancherManifestBuilderTest {
     }
 
     @Test
+    public void invalidWaitTimeout_abortsOnParse(JenkinsRule jenkins) throws Exception {
+        configureRancher(jenkins);
+        FreeStyleProject project = jenkins.createFreeStyleProject();
+        RancherManifestBuilder step = deploymentYamlStep("apps", "web");
+        step.setWaitTimeoutSeconds("0");
+        step.setValidateOnly(true);
+        project.getBuildersList().add(step);
+
+        FreeStyleBuild build = jenkins.buildAndAssertStatus(Result.FAILURE, project);
+        jenkins.assertLogContains("Settle timeout must be a positive number of seconds", build);
+        jenkins.assertLogNotContains("Wait timeout must be", build);
+        assertFalse(applyCalled.get());
+    }
+
+    @Test
     public void invalidYaml_abortsBeforeApply(JenkinsRule jenkins) throws Exception {
         configureRancher(jenkins);
         FreeStyleProject project = jenkins.createFreeStyleProject();

@@ -123,7 +123,16 @@ public class HelmAppStatesTest {
 
     @Test
     public void parseTimeout_rejectsZeroAndNonNumber() {
-        assertThrows(IllegalArgumentException.class, () -> HelmAppStates.parseTimeoutSeconds("0"));
+        IllegalArgumentException zero = assertThrows(
+                IllegalArgumentException.class, () -> HelmAppStates.parseTimeoutSeconds("0"));
+        assertTrue(zero.getMessage().contains("Settle timeout must be a positive number of seconds"));
+        assertFalse(zero.getMessage().contains("Wait timeout"));
+        IllegalArgumentException helmZero = assertThrows(
+                IllegalArgumentException.class,
+                () -> HelmAppStates.parsePositiveSeconds("0", HelmAppStates.HELM_TIMEOUT));
+        assertTrue(helmZero.getMessage().contains("Helm timeout must be a positive number of seconds"));
+        assertFalse(helmZero.getMessage().contains("Settle timeout"));
+        assertFalse(helmZero.getMessage().contains("Wait timeout"));
         assertThrows(IllegalArgumentException.class, () -> HelmAppStates.parseTimeoutSeconds("-1"));
         assertThrows(IllegalArgumentException.class, () -> HelmAppStates.parseTimeoutSeconds("nope"));
     }

@@ -1212,7 +1212,7 @@ final class RancherClient implements AutoCloseable {
         byte[] bytes = response.body() == null ? new byte[0] : response.body();
         logHttp(m, path, durationMs, debugNote, code);
         if (code < 200 || code >= 300) {
-            throw httpError(code, bytes);
+            throw httpError(code, bytes, uri);
         }
         return bytes;
     }
@@ -1394,6 +1394,13 @@ final class RancherClient implements AutoCloseable {
     }
 
     static IOException httpError(int code, byte[] bodyBytes) {
+        return httpError(code, bodyBytes, null);
+    }
+
+    static IOException httpError(int code, byte[] bodyBytes, URI uri) {
+        if (isHttpRedirectStatus(code)) {
+            return new IOException(httpRedirectMessage(code, uri));
+        }
         if (looksLikeHtml(bodyBytes)) {
             return new IOException(
                     HTTP_STATUS_PREFIX
@@ -1420,6 +1427,26 @@ final class RancherClient implements AutoCloseable {
                     "HTTP 404 - Rancher API path or resource not found" + suffix);
         }
         return new IOException(HTTP_STATUS_PREFIX + code + suffix);
+    }
+
+    static boolean isHttpRedirectStatus(int code) {
+        return code == 301 || code == 302 || code == 303 || code == 307 || code == 308;
+    }
+
+    static String httpRedirectMessage(int code, URI uri) {
+        if (uri != null && "http".equalsIgnoreCase(uri.getScheme())) {
+            return HTTP_STATUS_PREFIX
+                    + code
+                    + " - Rancher URL uses http://; the server redirected (typically to HTTPS)."
+                    + " Use an https:// Rancher Manager URL."
+                    + " This plugin does not follow HTTP redirects.";
+        }
+        return HTTP_STATUS_PREFIX
+                + code
+                + " - HTTP redirect was not followed."
+                + " Use the Rancher Manager base URL (https://rancher.example),"
+                + " not a redirecting or UI-only path."
+                + " This plugin does not follow HTTP redirects.";
     }
 
     static String extractErrorDetail(byte[] bodyBytes) {

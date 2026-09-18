@@ -94,7 +94,10 @@ class RancherBuilderValidationTest {
         assertEquals(FormValidation.Kind.OK, d.doCheckWaitTimeoutSeconds("", null).kind);
         assertEquals(FormValidation.Kind.OK, d.doCheckWaitTimeoutSeconds("${T}", null).kind);
         assertEquals(FormValidation.Kind.OK, d.doCheckWaitTimeoutSeconds("30", null).kind);
-        assertEquals(FormValidation.Kind.ERROR, d.doCheckWaitTimeoutSeconds("0", null).kind);
+        FormValidation settleZero = d.doCheckWaitTimeoutSeconds("0", null);
+        assertEquals(FormValidation.Kind.ERROR, settleZero.kind);
+        assertTrue(settleZero.getMessage().contains("Settle timeout must be"));
+        assertFalse(settleZero.getMessage().contains("Wait timeout"));
         assertEquals(FormValidation.Kind.ERROR, d.doCheckRepo("", null).kind);
         assertEquals(FormValidation.Kind.OK, d.doCheckRepo("${R}", null).kind);
         assertEquals(FormValidation.Kind.OK, d.doCheckRepo("https://charts.example/helm", null).kind);
@@ -159,7 +162,10 @@ class RancherBuilderValidationTest {
                 d.doCheckManifestYaml("plain", ManifestSource.YAML, null).kind);
         assertEquals(FormValidation.Kind.OK, d.doCheckWaitTimeoutSeconds("", null).kind);
         assertEquals(FormValidation.Kind.OK, d.doCheckWaitTimeoutSeconds("${T}", null).kind);
-        assertEquals(FormValidation.Kind.ERROR, d.doCheckWaitTimeoutSeconds("-1", null).kind);
+        FormValidation settleNeg = d.doCheckWaitTimeoutSeconds("-1", null);
+        assertEquals(FormValidation.Kind.ERROR, settleNeg.kind);
+        assertTrue(settleNeg.getMessage().contains("Settle timeout must be"));
+        assertFalse(settleNeg.getMessage().contains("Wait timeout"));
         assertEquals(FormValidation.Kind.OK, d.doCheckClusterId("local", ConnectionMode.MANUAL, null).kind);
         assertFalse(d.doFillRancherCredentialsIdItems(null, "").isEmpty());
         assertFalse(d.doFillGitCredentialsIdItems(null, "").isEmpty());
